@@ -17,19 +17,29 @@ function StatBox({ label, value, accent }) {
 export default function Dashboard() {
   const [searches, setSearches] = useState([]);
   const [stats, setStats] = useState({ total_searches: 0, items_today: 0, autobuys_total: 0, autobuys_ok: 0 });
+  const [worker, setWorker] = useState({ running: false, total_polls: 0, total_errors: 0, active_searches: 0 });
   const [showForm, setShowForm] = useState(false);
 
   const load = async () => {
     try {
-      const [s, st] = await Promise.all([api.get("/searches"), api.get("/stats")]);
+      const [s, st, w] = await Promise.all([
+        api.get("/searches"),
+        api.get("/stats"),
+        api.get("/worker/status"),
+      ]);
       setSearches(s.data);
       setStats(st.data);
+      setWorker(w.data);
     } catch (e) {
       toast.error("Failed to load dashboard");
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, []);
 
   const handleCreate = async (payload) => {
     try {
@@ -69,6 +79,21 @@ export default function Dashboard() {
         </button>
       </div>
 
+      <div className="brut-border bg-black text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 flex items-center justify-between gap-4 flex-wrap" data-testid="worker-status">
+        <div className="flex items-center gap-3">
+          <span className={`w-3 h-3 rounded-full ${worker.running ? "bg-[#00C853] pulse-dot" : "bg-[#FF3B30]"}`}></span>
+          <div>
+            <div className="font-head font-black tracking-tight text-lg">BACKGROUND WORKER · {worker.running ? "ONLINE" : "OFFLINE"}</div>
+            <div className="font-mono text-[10px] uppercase tracking-widest opacity-70">
+              {worker.active_searches} active hunts · {worker.total_polls} total polls · {worker.total_errors} errors
+            </div>
+          </div>
+        </div>
+        <Link to="/settings" className="font-mono text-[10px] uppercase tracking-widest underline" data-testid="goto-settings-link">
+          Configure Vinted session →
+        </Link>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="stats-grid">
         <StatBox label="Searches" value={stats.total_searches} />
         <StatBox label="Items Today" value={stats.items_today} accent="text-[#002FA7]" />
@@ -102,7 +127,7 @@ export default function Dashboard() {
                 <div className="font-mono text-[10px] text-gray-600 uppercase">
                   {s.keyword || "no keyword"} · {s.price_from ?? "*"} - {s.price_to ?? "*"} {s.currency}
                 </div>
-                <div className="flex items-center gap-2 mt-2">
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
                   {s.autobuy ? (
                     <span className="brut-border bg-[#00C853] text-black font-mono text-[10px] font-black uppercase px-2 py-1 flex items-center gap-1">
                       <Zap size={10} /> AUTOBUY ARMED
@@ -110,6 +135,9 @@ export default function Dashboard() {
                   ) : (
                     <span className="brut-border bg-white font-mono text-[10px] font-bold uppercase px-2 py-1">manual</span>
                   )}
+                  <span className={`brut-border font-mono text-[10px] font-black uppercase px-2 py-1 ${s.enabled ? "bg-[#002FA7] text-white" : "bg-gray-200"}`}>
+                    {s.enabled ? `${s.polling_interval ?? 2}s` : "OFF"}
+                  </span>
                   <span className="brut-border bg-black text-white font-mono text-[10px] font-bold uppercase px-2 py-1 ml-auto">
                     {s.items_found_total} found
                   </span>

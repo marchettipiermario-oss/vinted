@@ -14,6 +14,8 @@ const DEFAULT = {
   order: "newest_first",
   autobuy: false,
   max_autobuy_price: "",
+  enabled: true,
+  polling_interval: 2,
 };
 
 export default function SearchForm({ initial = {}, onSubmit, onCancel, submitLabel = "Save Search" }) {
@@ -27,6 +29,7 @@ export default function SearchForm({ initial = {}, onSubmit, onCancel, submitLab
       price_from: form.price_from === "" ? null : Number(form.price_from),
       price_to: form.price_to === "" ? null : Number(form.price_to),
       max_autobuy_price: form.max_autobuy_price === "" ? null : Number(form.max_autobuy_price),
+      polling_interval: Math.max(2, Math.min(60, Number(form.polling_interval) || 2)),
     };
     onSubmit(payload);
   };
@@ -73,6 +76,35 @@ export default function SearchForm({ initial = {}, onSubmit, onCancel, submitLab
             <option value="price_high_to_low">Price ↓</option>
             <option value="relevance">Relevance</option>
           </select>
+        </div>
+      </div>
+
+      <div className="brut-border bg-[#002FA7] text-white p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-head text-lg font-black tracking-tight">⚡ BACKGROUND WORKER</div>
+            <div className="font-mono text-xs opacity-80">Server-side polling, runs 24/7 even with the dashboard closed.</div>
+          </div>
+          <button
+            type="button"
+            data-testid="form-enabled-toggle"
+            onClick={() => upd("enabled", !form.enabled)}
+            className={`brut-border px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest ${form.enabled ? "bg-[#00C853] text-black" : "bg-white text-black"}`}
+          >
+            {form.enabled ? "ENABLED" : "DISABLED"}
+          </button>
+        </div>
+        <div>
+          <label className="brut-label text-white">Polling Interval (seconds, 2–60)</label>
+          <input
+            data-testid="form-polling-interval"
+            className="brut-input"
+            type="number"
+            min={2}
+            max={60}
+            value={form.polling_interval}
+            onChange={(e) => upd("polling_interval", e.target.value)}
+          />
         </div>
       </div>
 

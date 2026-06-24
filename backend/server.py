@@ -144,6 +144,8 @@ class SavedSearchIn(BaseModel):
     order: Optional[str] = "newest_first"
     autobuy: bool = False
     max_autobuy_price: Optional[float] = None
+    enabled: bool = True  # background worker pollserà solo se True
+    polling_interval: int = Field(default=2, ge=2, le=60)  # seconds
 
 
 class AutobuyIn(BaseModel):
@@ -371,8 +373,13 @@ def _search_doc_to_out(d: dict) -> dict:
         "order": d.get("order", "newest_first"),
         "autobuy": d.get("autobuy", False),
         "max_autobuy_price": d.get("max_autobuy_price"),
+        "enabled": d.get("enabled", True),
+        "polling_interval": d.get("polling_interval", 2),
         "created_at": d.get("created_at"),
         "last_run_at": d.get("last_run_at"),
+        "last_poll_duration_ms": d.get("last_poll_duration_ms"),
+        "poll_count": d.get("poll_count", 0),
+        "error_count": d.get("error_count", 0),
         "items_found_total": d.get("items_found_total", 0),
     }
 
@@ -459,11 +466,24 @@ async def run_search(search_id: str, user: dict = Depends(get_current_user)):
     d = await db.searches.find_one({"_id": ObjectId(search_id), "user_id": user["id"]})
     if not d:
         raise HTTPException(status_code=404, detail="Not found")
-    client = await get_vinted_client(user["id"])
-    raw_items = await asyncio.to_thread(client.search, d, 24)
+    result = await _execute_search(d)
+    return result
+
+
+async def _execute_search(d: dict) -> Dict[str, Any]:
+    """Core search execution shared by manual /run and background worker."""
+    started = datetime.now(timezone.utc)
+    search_id = str(d["_id"])
+    user_id = d["user_id"]
+    client = await get_vinted_client(user_id)
+    try:
+        raw_items = await asyncio.to_thread(client.search, d, 24)
+    except Exception as e:
+        await db.searches.update_one({"_id": d["_id"]}, {"$inc": {"error_count": 1}})
+        logger.warning(f"Search {search_id} error: {e}")
+        return {"items": [], "new_count": 0, "total": 0, "autobuy_attempts": [], "error": str(e)}
     items = [_normalize_item(x) for x in raw_items]
 
-    # Diff against seen items to mark "new"
     seen_ids = set()
     cur = db.items_seen.find({"search_id": search_id}, {"item_id": 1})
     async for s in cur:
@@ -471,18 +491,25 @@ async def run_search(search_id: str, user: dict = Depends(get_current_user)):
 
     new_ids = []
     autobuy_attempts = []
+    new_items_to_store = []
     for it in items:
         if it["id"] not in seen_ids:
             it["is_new"] = True
             new_ids.append(it["id"])
-            # autobuy logic
+            new_items_to_store.append({
+                "search_id": search_id,
+                "user_id": user_id,
+                "item_id": it["id"],
+                "data": it,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            })
             if d.get("autobuy"):
                 cap = d.get("max_autobuy_price")
                 if cap is None or (it["price"] is not None and it["price"] <= cap):
                     result = await asyncio.to_thread(client.buy, it["id"])
                     autobuy_attempts.append({"item_id": it["id"], "result": result})
                     await db.autobuy_log.insert_one({
-                        "user_id": user["id"],
+                        "user_id": user_id,
                         "search_id": search_id,
                         "item_id": it["id"],
                         "title": it["title"],
@@ -495,23 +522,138 @@ async def run_search(search_id: str, user: dict = Depends(get_current_user)):
         else:
             it["is_new"] = False
 
-    # Persist newly seen
     if new_ids:
         await db.items_seen.insert_many([
             {"search_id": search_id, "item_id": iid, "ts": datetime.now(timezone.utc).isoformat()}
             for iid in new_ids
         ])
+    if new_items_to_store:
+        await db.items_cache.insert_many(new_items_to_store)
+
+    elapsed = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
     await db.searches.update_one(
-        {"_id": ObjectId(search_id)},
-        {"$set": {"last_run_at": datetime.now(timezone.utc).isoformat()},
-         "$inc": {"items_found_total": len(new_ids)}},
+        {"_id": d["_id"]},
+        {"$set": {
+            "last_run_at": datetime.now(timezone.utc).isoformat(),
+            "last_poll_duration_ms": elapsed,
+         },
+         "$inc": {"items_found_total": len(new_ids), "poll_count": 1}},
     )
     return {
         "items": items,
         "new_count": len(new_ids),
         "total": len(items),
         "autobuy_attempts": autobuy_attempts,
+        "elapsed_ms": elapsed,
     }
+
+
+@api.get("/searches/{search_id}/items")
+async def get_cached_items(search_id: str, limit: int = 48, user: dict = Depends(get_current_user)):
+    """Return latest items cached by the background worker for this search."""
+    d = await db.searches.find_one({"_id": ObjectId(search_id), "user_id": user["id"]})
+    if not d:
+        raise HTTPException(status_code=404, detail="Not found")
+    cur = db.items_cache.find({"search_id": search_id}).sort("ts", -1).limit(limit)
+    items = []
+    seen = set()
+    async for doc in cur:
+        if doc["item_id"] in seen:
+            continue
+        seen.add(doc["item_id"])
+        it = doc["data"]
+        it["cached_at"] = doc["ts"]
+        items.append(it)
+    return {
+        "items": items,
+        "last_run_at": d.get("last_run_at"),
+        "last_poll_duration_ms": d.get("last_poll_duration_ms"),
+        "poll_count": d.get("poll_count", 0),
+        "enabled": d.get("enabled", True),
+        "polling_interval": d.get("polling_interval", 2),
+    }
+
+
+# -----------------------------------------------------------------------------
+# Background Worker
+# -----------------------------------------------------------------------------
+WORKER_STATE: Dict[str, Any] = {
+    "running": False,
+    "started_at": None,
+    "total_polls": 0,
+    "total_errors": 0,
+    "last_tick_at": None,
+}
+_search_locks: Dict[str, asyncio.Lock] = {}
+_worker_task: Optional[asyncio.Task] = None
+
+
+async def _poll_one(search_doc: dict) -> None:
+    sid = str(search_doc["_id"])
+    lock = _search_locks.setdefault(sid, asyncio.Lock())
+    if lock.locked():
+        return  # previous poll still running, skip this tick
+    async with lock:
+        try:
+            res = await _execute_search(search_doc)
+            WORKER_STATE["total_polls"] += 1
+            if res.get("new_count"):
+                logger.info(f"[worker] search={sid} new={res['new_count']} elapsed={res.get('elapsed_ms')}ms")
+            if res.get("error"):
+                WORKER_STATE["total_errors"] += 1
+        except Exception as e:
+            WORKER_STATE["total_errors"] += 1
+            logger.warning(f"[worker] poll error {sid}: {e}")
+
+
+async def background_worker() -> None:
+    """Loop forever. Every 500ms, find searches due for a poll and execute them in parallel."""
+    logger.info("[worker] background worker started")
+    WORKER_STATE["running"] = True
+    WORKER_STATE["started_at"] = datetime.now(timezone.utc).isoformat()
+    while True:
+        try:
+            WORKER_STATE["last_tick_at"] = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(timezone.utc)
+            due: List[dict] = []
+            cur = db.searches.find({"enabled": {"$ne": False}})
+            async for s in cur:
+                interval = int(s.get("polling_interval", 2))
+                last_iso = s.get("last_run_at")
+                if not last_iso:
+                    due.append(s)
+                    continue
+                try:
+                    last = datetime.fromisoformat(last_iso)
+                except Exception:
+                    due.append(s)
+                    continue
+                if (now - last).total_seconds() >= interval:
+                    due.append(s)
+            if due:
+                await asyncio.gather(*[_poll_one(s) for s in due], return_exceptions=True)
+        except Exception as e:
+            logger.exception(f"[worker] loop error: {e}")
+        await asyncio.sleep(0.5)
+
+
+@api.get("/worker/status")
+async def worker_status(user: dict = Depends(get_current_user)):
+    return {
+        **WORKER_STATE,
+        "active_searches": await db.searches.count_documents({"user_id": user["id"], "enabled": {"$ne": False}}),
+        "total_searches": await db.searches.count_documents({"user_id": user["id"]}),
+    }
+
+
+@api.post("/searches/{search_id}/toggle")
+async def toggle_search(search_id: str, user: dict = Depends(get_current_user)):
+    d = await db.searches.find_one({"_id": ObjectId(search_id), "user_id": user["id"]})
+    if not d:
+        raise HTTPException(status_code=404, detail="Not found")
+    new_enabled = not d.get("enabled", True)
+    await db.searches.update_one({"_id": d["_id"]}, {"$set": {"enabled": new_enabled}})
+    return {"enabled": new_enabled}
 
 
 @api.post("/buy")
@@ -574,6 +716,12 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.searches.create_index([("user_id", 1)])
     await db.items_seen.create_index([("search_id", 1), ("item_id", 1)], unique=True)
+    await db.items_cache.create_index([("search_id", 1), ("ts", -1)])
+    # Auto-expire cached items after 24h to keep the DB lean
+    try:
+        await db.items_cache.create_index("ts", expireAfterSeconds=86400)
+    except Exception:
+        pass
     await db.vinted_configs.create_index("user_id", unique=True)
     # seed admin
     email = os.environ.get("ADMIN_EMAIL", "admin@vintedbot.app")
@@ -591,9 +739,16 @@ async def startup():
     elif not verify_password(pw, existing["password_hash"]):
         await db.users.update_one({"email": email}, {"$set": {"password_hash": hash_password(pw)}})
 
+    # Launch background worker
+    global _worker_task
+    _worker_task = asyncio.create_task(background_worker())
+
 
 @app.on_event("shutdown")
 async def shutdown():
+    global _worker_task
+    if _worker_task:
+        _worker_task.cancel()
     client.close()
 
 

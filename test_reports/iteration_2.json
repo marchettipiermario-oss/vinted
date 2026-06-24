@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 2 (background worker + per-search polling) tested end-to-end. Backend and frontend both pass all targeted checks. Worker is running, polls every enabled search at its configured interval, disabling stops polls, cache endpoint returns items + metadata, manual /run still works, and the UI surfaces worker status + per-search controls correctly.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login admin works, JWT returned",
+    "GET /api/worker/status -> running=true, active_searches=2, total_polls=119 then growing (208->215 in ~6s)",
+    "POST /api/searches persists enabled=true + polling_interval=5 (new 'Test PI' search created)",
+    "GET /api/searches/{id}/items returns cached items + last_run_at, last_poll_duration_ms (1080ms), poll_count, enabled, polling_interval",
+    "Background worker polls at configured interval: poll_count grew 53 -> 55 within 7s for interval=2",
+    "POST /api/searches/{id}/toggle disables search; poll_count frozen at 55 across two 5-7s windows after disable",
+    "Re-toggle re-enables search successfully",
+    "POST /api/searches/{id}/run (manual Force Run) returns 200 with items list (24 items)",
+    "Dashboard shows 'BACKGROUND WORKER · ONLINE' worker-status box with poll/error counters auto-refreshing (208 -> 215 polls within 6s in UI)",
+    "SearchDetail page shows WORKER badge with interval (5S), cached count (48 CACHED · 7 POLLS), LAST: 1156MS, toggle-enabled-btn (Stop Worker) and refresh-btn (Force Run) both visible and clickable",
+    "SearchForm exposes form-enabled-toggle and form-polling-interval (default value 2)"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "Worker hits real Vinted API (~1-2.9s per poll observed). items_cache populated and served without triggering new HTTP calls. Auto-refresh interval on dashboard worker-status appears <=5s as expected."
+}
