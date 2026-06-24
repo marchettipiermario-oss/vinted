@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 4 — async curl_cffi + HTTP/2 + cookie pool. All cookie pool CRUD endpoints working (GET/POST/toggle/DELETE), cookie_preview is properly truncated (40 chars + '...'). All previously tested endpoints still pass (auth, searches, vinted/config, worker/status, stats). Worker p50_ms=856 — improved from 905 (iteration 3), under target of 900ms. Frontend Settings page renders both 'Primary Vinted Session' and 'Cookie Pool · Staggered Polling' sections, full add/toggle/delete UI flow works end-to-end with proper data-testids. Test cookies cleaned up.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login returns JWT (admin@vintedbot.app)",
+    "GET /api/vinted/cookies initial returns [] (empty)",
+    "POST /api/vinted/cookies adds entry, returns {id, ok}",
+    "GET /api/vinted/cookies returns entry with truncated cookie_preview (40 chars + '...'), no full cookie leaked",
+    "POST /api/vinted/cookies/{id}/toggle flips enabled flag (true→false)",
+    "DELETE /api/vinted/cookies/{id} removes entry, list back to []",
+    "GET /api/worker/status: running=true, total_errors=0, tls_impersonation=chrome120, p50_ms=856 (<900 target), p95_ms=1338, samples=121",
+    "GET /api/stats 200, GET /api/vinted/config 200, GET /api/searches 200",
+    "Frontend login → Settings navigation works",
+    "data-testid='cookie-pool-section' visible alongside Primary Vinted Session section",
+    "UI: add cookie via cookie-label-input + cookie-value-input + cookie-add-btn creates pool-row-{id}",
+    "UI: pool-toggle-{id} works (toast confirmation)",
+    "UI: pool-delete-{id} removes row (pool back to 0)",
+    "No console errors during UI flow"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "perf_note": "p50 dropped from 905ms (iter 3) → 856ms (iter 4), ~5.4% improvement. p95=1338ms, 0 worker errors across 121 samples, 3 active searches. Async curl_cffi + HTTP/2 + Chrome120 TLS impersonation confirmed active."
+}

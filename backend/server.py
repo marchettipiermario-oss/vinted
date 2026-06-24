@@ -166,18 +166,22 @@ class VintedClient:
         self.domain = (domain or "www.vinted.it").strip().replace("https://", "").replace("http://", "").rstrip("/")
         self.cookie = cookie or ""
         self.user_agent = user_agent or DEFAULT_UA
-        # curl_cffi impersonates real Chrome at the TLS/JA3 level — invisible to Cloudflare bot detection
+        # Sync session for buy() (autobuy needs full TLS handshake control)
         self.session = cffi_requests.Session(impersonate="chrome120")
-        self.session.headers.update({
+        # Async session for high-throughput search polling (HTTP/2 multiplexing)
+        self.asession = cffi_requests.AsyncSession(impersonate="chrome120")
+        headers = {
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "it-IT,it;q=0.9,en;q=0.8",
             "Referer": f"https://{self.domain}/",
-        })
+        }
         if self.cookie:
-            self.session.headers["Cookie"] = self.cookie
+            headers["Cookie"] = self.cookie
+        self.session.headers.update(headers)
+        self.asession.headers.update(headers)
         self._csrf: Optional[str] = None
         self._csrf_refreshed_at: float = 0.0
-        self._csrf_ttl: float = 60.0  # seconds
+        self._csrf_ttl: float = 60.0
 
     def _bootstrap_guest(self) -> None:
         if self.cookie:
@@ -207,34 +211,42 @@ class VintedClient:
             logger.warning(f"CSRF refresh failed: {e}")
         return self._csrf
 
-    def search(self, params: Dict[str, Any], per_page: int = 24) -> List[Dict[str, Any]]:
-        self._bootstrap_guest()
+    async def _bootstrap_guest_async(self) -> None:
+        """Make the async session look like a real browser by visiting the homepage once."""
+        if self.cookie or self._csrf_refreshed_at > 0:
+            return
+        try:
+            r = await self.asession.get(f"https://{self.domain}/", timeout=10)
+            m = re.search(r'"CSRF_TOKEN":"([^"]+)"', r.text)
+            if m:
+                self._csrf = m.group(1)
+                self._csrf_refreshed_at = datetime.now(timezone.utc).timestamp()
+        except Exception as e:
+            logger.warning(f"Async guest bootstrap failed: {e}")
+
+    async def search(self, params: Dict[str, Any], per_page: int = 24, cookie_override: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Async search using curl_cffi AsyncSession (HTTP/2 + Chrome TLS impersonation)."""
+        await self._bootstrap_guest_async()
         url = f"https://{self.domain}/api/v2/catalog/items"
         query = {
             "page": 1,
             "per_page": per_page,
             "order": params.get("order") or "newest_first",
         }
-        if params.get("keyword"):
-            query["search_text"] = params["keyword"]
-        if params.get("brand_ids"):
-            query["brand_ids"] = params["brand_ids"]
-        if params.get("catalog_ids"):
-            query["catalog_ids"] = params["catalog_ids"]
-        if params.get("size_ids"):
-            query["size_ids"] = params["size_ids"]
-        if params.get("color_ids"):
-            query["color_ids"] = params["color_ids"]
-        if params.get("status_ids"):
-            query["status_ids"] = params["status_ids"]
-        if params.get("price_from") is not None:
-            query["price_from"] = params["price_from"]
-        if params.get("price_to") is not None:
-            query["price_to"] = params["price_to"]
-        if params.get("currency"):
-            query["currency"] = params["currency"]
+        if params.get("keyword"): query["search_text"] = params["keyword"]
+        if params.get("brand_ids"): query["brand_ids"] = params["brand_ids"]
+        if params.get("catalog_ids"): query["catalog_ids"] = params["catalog_ids"]
+        if params.get("size_ids"): query["size_ids"] = params["size_ids"]
+        if params.get("color_ids"): query["color_ids"] = params["color_ids"]
+        if params.get("status_ids"): query["status_ids"] = params["status_ids"]
+        if params.get("price_from") is not None: query["price_from"] = params["price_from"]
+        if params.get("price_to") is not None: query["price_to"] = params["price_to"]
+        if params.get("currency"): query["currency"] = params["currency"]
+        headers = {}
+        if cookie_override:
+            headers["Cookie"] = cookie_override
         try:
-            r = self.session.get(url, params=query, timeout=12)
+            r = await self.asession.get(url, params=query, headers=headers or None, timeout=12)
             if r.status_code in (401, 403):
                 logger.warning(f"Vinted auth failed: {r.status_code}")
                 return []
@@ -372,6 +384,55 @@ async def update_config(payload: VintedConfigIn, user: dict = Depends(get_curren
     return {"ok": True, "configured": bool(payload.cookie)}
 
 
+class CookieIn(BaseModel):
+    label: str
+    cookie: str
+    enabled: bool = True
+
+
+@api.get("/vinted/cookies")
+async def list_cookies(user: dict = Depends(get_current_user)):
+    cur = db.vinted_cookies.find({"user_id": user["id"]}).sort("created_at", 1)
+    out = []
+    async for c in cur:
+        out.append({
+            "id": str(c["_id"]),
+            "label": c.get("label", ""),
+            "enabled": c.get("enabled", True),
+            "cookie_preview": (c.get("cookie", "")[:40] + "...") if c.get("cookie") else "",
+            "created_at": c.get("created_at"),
+        })
+    return out
+
+
+@api.post("/vinted/cookies")
+async def add_cookie(payload: CookieIn, user: dict = Depends(get_current_user)):
+    res = await db.vinted_cookies.insert_one({
+        "user_id": user["id"],
+        "label": payload.label,
+        "cookie": payload.cookie,
+        "enabled": payload.enabled,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"id": str(res.inserted_id), "ok": True}
+
+
+@api.post("/vinted/cookies/{cookie_id}/toggle")
+async def toggle_cookie(cookie_id: str, user: dict = Depends(get_current_user)):
+    c = await db.vinted_cookies.find_one({"_id": ObjectId(cookie_id), "user_id": user["id"]})
+    if not c:
+        raise HTTPException(status_code=404, detail="Not found")
+    new_enabled = not c.get("enabled", True)
+    await db.vinted_cookies.update_one({"_id": c["_id"]}, {"$set": {"enabled": new_enabled}})
+    return {"enabled": new_enabled}
+
+
+@api.delete("/vinted/cookies/{cookie_id}")
+async def delete_cookie(cookie_id: str, user: dict = Depends(get_current_user)):
+    await db.vinted_cookies.delete_one({"_id": ObjectId(cookie_id), "user_id": user["id"]})
+    return {"ok": True}
+
+
 @api.post("/vinted/test")
 async def test_connection(user: dict = Depends(get_current_user)):
     client = await get_vinted_client(user["id"])
@@ -495,14 +556,26 @@ async def run_search(search_id: str, user: dict = Depends(get_current_user)):
     return result
 
 
+async def _get_cookie_pool(user_id: str) -> List[str]:
+    """Return list of enabled extra cookies for staggered polling. Primary cookie excluded."""
+    cur = db.vinted_cookies.find({"user_id": user_id, "enabled": True})
+    return [c["cookie"] async for c in cur if c.get("cookie")]
+
+
 async def _execute_search(d: dict) -> Dict[str, Any]:
     """Core search execution shared by manual /run and background worker."""
     started = datetime.now(timezone.utc)
     search_id = str(d["_id"])
     user_id = d["user_id"]
     client = await get_vinted_client(user_id)
+    # Rotate among extra cookies for stealth + load distribution
+    pool = await _get_cookie_pool(user_id)
+    cookie_override = None
+    if pool:
+        idx = int(d.get("poll_count", 0)) % len(pool)
+        cookie_override = pool[idx]
     try:
-        raw_items = await asyncio.to_thread(client.search, d, 24)
+        raw_items = await client.search(d, 24, cookie_override=cookie_override)
     except Exception as e:
         await db.searches.update_one({"_id": d["_id"]}, {"$inc": {"error_count": 1}})
         logger.warning(f"Search {search_id} error: {e}")
@@ -651,7 +724,10 @@ async def _poll_one(search_doc: dict) -> None:
 
 
 async def background_worker() -> None:
-    """Loop forever. Every 500ms, find searches due for a poll and execute them in parallel."""
+    """Loop forever. Every 250ms, find searches due for a poll and execute them in parallel.
+    When a user has N extra cookies, the effective polling rate is multiplied by (N+1)
+    via staggered offsets — discovery latency drops from `interval` to `interval/(N+1)`.
+    """
     logger.info("[worker] background worker started")
     WORKER_STATE["running"] = True
     WORKER_STATE["started_at"] = datetime.now(timezone.utc).isoformat()
@@ -662,7 +738,10 @@ async def background_worker() -> None:
             due: List[dict] = []
             cur = db.searches.find({"enabled": {"$ne": False}})
             async for s in cur:
-                interval = int(s.get("polling_interval", 2))
+                interval = float(s.get("polling_interval", 2))
+                # effective interval = interval / (1 + extra_cookies)
+                pool_size = await db.vinted_cookies.count_documents({"user_id": s["user_id"], "enabled": True})
+                effective = interval / max(1, (1 + pool_size))
                 last_iso = s.get("last_run_at")
                 if not last_iso:
                     due.append(s)
@@ -672,13 +751,13 @@ async def background_worker() -> None:
                 except Exception:
                     due.append(s)
                     continue
-                if (now - last).total_seconds() >= interval:
+                if (now - last).total_seconds() >= effective:
                     due.append(s)
             if due:
                 await asyncio.gather(*[_poll_one(s) for s in due], return_exceptions=True)
         except Exception as e:
             logger.exception(f"[worker] loop error: {e}")
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.25)
 
 
 async def csrf_prewarmer() -> None:
