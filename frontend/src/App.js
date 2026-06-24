@@ -7,6 +7,7 @@ import Register from "@/pages/Register";
 import Dashboard from "@/pages/Dashboard";
 import SearchDetail from "@/pages/SearchDetail";
 import Settings from "@/pages/Settings";
+import Earnings from "@/pages/Earnings";
 import Layout from "@/components/Layout";
 
 function Protected({ children }) {
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/search/:id" element={<SearchDetail />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/earnings" element={<Earnings />} />
           </Route>
         </Routes>
       </BrowserRouter>

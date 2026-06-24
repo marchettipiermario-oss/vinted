@@ -36,6 +36,7 @@ export default function Layout() {
           </Link>
           <nav className="flex gap-2 ml-auto flex-wrap">
             {navItem("/", "Dashboard", LayoutGrid)}
+            {navItem("/earnings", "Earnings", Activity)}
             {navItem("/settings", "Settings", SettingsIcon)}
             <span className="font-mono text-xs uppercase tracking-widest px-3 py-2 bg-[#F9FAFB] brut-border" data-testid="user-email">
               {user?.email}

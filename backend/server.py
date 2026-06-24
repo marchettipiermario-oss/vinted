@@ -893,6 +893,43 @@ async def test_telegram(user: dict = Depends(get_current_user)):
     return {"ok": ok}
 
 
+@api.post("/autobuy/{log_id}/resale")
+async def set_resale(log_id: str, body: dict, user: dict = Depends(get_current_user)):
+    await db.autobuy_log.update_one(
+        {"_id": ObjectId(log_id), "user_id": user["id"]},
+        {"$set": {"resale_price": float(body.get("resale_price", 0)), "resale_note": body.get("note", "")}},
+    )
+    return {"ok": True}
+
+
+@api.get("/earnings")
+async def earnings(user: dict = Depends(get_current_user)):
+    cur = db.autobuy_log.find({"user_id": user["id"], "success": True})
+    total_spent = 0.0
+    total_resale = 0.0
+    items = []
+    async for d in cur:
+        spent = float(d.get("price") or 0)
+        resale = float(d.get("resale_price") or 0)
+        total_spent += spent
+        total_resale += resale
+        items.append({
+            "id": str(d["_id"]),
+            "title": d.get("title", ""),
+            "price": spent,
+            "resale_price": resale,
+            "profit": resale - spent if resale else None,
+            "note": d.get("resale_note", ""),
+            "ts": d.get("ts"),
+        })
+    return {
+        "total_spent": round(total_spent, 2),
+        "total_resale": round(total_resale, 2),
+        "profit": round(total_resale - total_spent, 2),
+        "items": items,
+    }
+
+
 @api.post("/buy")
 async def manual_buy(payload: AutobuyIn, user: dict = Depends(get_current_user)):
     client = await get_vinted_client(user["id"])
