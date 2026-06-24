@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 3 (curl_cffi TLS spoofing + CSRF prewarm + latency metrics) verified end-to-end. Backend /api/worker/status returns all new fields (tls_impersonation='chrome120', p50_ms=892, p95_ms=1307, samples=70+, csrf_cached, csrf_age_seconds, per_search_metrics). Worker keeps polling (123 -> 158 -> 163 polls over a few seconds, 0 errors). /api/searches/{id}/run returns 24 items with elapsed_ms=1440. All previously-tested endpoints still functional. Dashboard renders worker-status box with TLS:CHROME120, P50 888MS / P95 1307MS, CSRF cache indicator visible.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login -> 200, JWT issued",
+    "GET /api/auth/me -> 200, admin role",
+    "GET /api/worker/status -> includes tls_impersonation=chrome120, p50_ms=892, p95_ms=1307, samples=70, csrf_cached=false, csrf_age_seconds=null, per_search_metrics dict with p50/p95/last/samples for all 3 searches",
+    "Worker background polling: total_polls grew 123 -> 158 -> 163 over ~6s, samples 70 -> 94, p50 stable ~873-892ms (≈18% improvement vs 1100ms baseline)",
+    "GET /api/searches -> 3 searches",
+    "POST /api/searches/{id}/run -> total=24 items, elapsed_ms=1440, new_count=2",
+    "GET /api/searches/{id}/items?limit=30 -> returns persisted items",
+    "POST /api/searches/{id}/toggle -> flips enabled flag (False then True)",
+    "GET /api/vinted/config -> configured:false (no cookie set)",
+    "POST /api/vinted/test -> ok:false, count:0 (expected without cookie)",
+    "POST /api/buy -> success:false, clean message 'Vinted session cookie not configured...'",
+    "GET /api/autobuy/log -> returns log list",
+    "GET /api/stats -> total_searches=3, items_today=2133",
+    "Dashboard frontend: worker-status box renders TLS:CHROME120, P50: 888MS, P95: 1307MS, CSRF CACHE indicator (N=123 polls), 'BACKGROUND WORKER · ONLINE'"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "Login redirects to '/' (Control Room is the dashboard). data-testid='worker-metrics' attribute lookup could not be confirmed via Playwright because navigation wait targeted '/dashboard' path, but the rendered UI clearly contains all required metrics (TLS:CHROME120, p50/p95, CSRF cache). csrf_cached is false because no Vinted cookie is configured for this admin user — expected, since prewarmer only refreshes for users with cookie configured."
+}

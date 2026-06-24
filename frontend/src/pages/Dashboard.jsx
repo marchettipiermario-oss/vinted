@@ -83,15 +83,23 @@ export default function Dashboard() {
         <div className="flex items-center gap-3">
           <span className={`w-3 h-3 rounded-full ${worker.running ? "bg-[#00C853] pulse-dot" : "bg-[#FF3B30]"}`}></span>
           <div>
-            <div className="font-head font-black tracking-tight text-lg">BACKGROUND WORKER · {worker.running ? "ONLINE" : "OFFLINE"}</div>
+            <div className="font-head font-black tracking-tight text-lg">
+              BACKGROUND WORKER · {worker.running ? "ONLINE" : "OFFLINE"}
+            </div>
             <div className="font-mono text-[10px] uppercase tracking-widest opacity-70">
-              {worker.active_searches} active hunts · {worker.total_polls} total polls · {worker.total_errors} errors
+              {worker.active_searches} hunts · {worker.total_polls} polls · {worker.total_errors} errors · TLS:{worker.tls_impersonation || "—"}
             </div>
           </div>
         </div>
-        <Link to="/settings" className="font-mono text-[10px] uppercase tracking-widest underline" data-testid="goto-settings-link">
-          Configure Vinted session →
-        </Link>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="font-mono text-[10px] uppercase tracking-widest text-right" data-testid="worker-metrics">
+            <div>p50: <span className="text-[#00C853] font-bold">{worker.p50_ms ?? "—"}ms</span> · p95: <span className="text-[#FF3B30] font-bold">{worker.p95_ms ?? "—"}ms</span></div>
+            <div className="opacity-60">CSRF cache: {worker.csrf_cached ? `✓ ${worker.csrf_age_seconds}s old` : "—"} · n={worker.samples ?? 0}</div>
+          </div>
+          <Link to="/settings" className="font-mono text-[10px] uppercase tracking-widest underline" data-testid="goto-settings-link">
+            Configure →
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="stats-grid">

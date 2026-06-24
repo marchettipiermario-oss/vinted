@@ -14,7 +14,7 @@ from typing import List, Optional, Dict, Any
 
 import bcrypt
 import jwt as pyjwt
-import requests
+from curl_cffi import requests as cffi_requests
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, status
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -166,9 +166,9 @@ class VintedClient:
         self.domain = (domain or "www.vinted.it").strip().replace("https://", "").replace("http://", "").rstrip("/")
         self.cookie = cookie or ""
         self.user_agent = user_agent or DEFAULT_UA
-        self.session = requests.Session()
+        # curl_cffi impersonates real Chrome at the TLS/JA3 level — invisible to Cloudflare bot detection
+        self.session = cffi_requests.Session(impersonate="chrome120")
         self.session.headers.update({
-            "User-Agent": self.user_agent,
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "it-IT,it;q=0.9,en;q=0.8",
             "Referer": f"https://{self.domain}/",
@@ -176,19 +176,36 @@ class VintedClient:
         if self.cookie:
             self.session.headers["Cookie"] = self.cookie
         self._csrf: Optional[str] = None
+        self._csrf_refreshed_at: float = 0.0
+        self._csrf_ttl: float = 60.0  # seconds
 
     def _bootstrap_guest(self) -> None:
-        """If no cookie supplied, hit homepage to obtain guest cookies."""
         if self.cookie:
             return
         try:
             r = self.session.get(f"https://{self.domain}/", timeout=10)
-            # try to extract CSRF token from HTML
             m = re.search(r'"CSRF_TOKEN":"([^"]+)"', r.text)
             if m:
                 self._csrf = m.group(1)
+                self._csrf_refreshed_at = datetime.now(timezone.utc).timestamp()
         except Exception as e:
             logger.warning(f"Guest bootstrap failed: {e}")
+
+    def refresh_csrf(self, force: bool = False) -> Optional[str]:
+        """Refresh CSRF token by hitting the homepage (cheap, ~200ms). Cached for 60s."""
+        now = datetime.now(timezone.utc).timestamp()
+        if not force and self._csrf and (now - self._csrf_refreshed_at) < self._csrf_ttl:
+            return self._csrf
+        try:
+            r = self.session.get(f"https://{self.domain}/", timeout=8)
+            m = re.search(r'"CSRF_TOKEN":"([^"]+)"', r.text)
+            if m:
+                self._csrf = m.group(1)
+                self._csrf_refreshed_at = now
+                return self._csrf
+        except Exception as e:
+            logger.warning(f"CSRF refresh failed: {e}")
+        return self._csrf
 
     def search(self, params: Dict[str, Any], per_page: int = 24) -> List[Dict[str, Any]]:
         self._bootstrap_guest()
@@ -218,7 +235,7 @@ class VintedClient:
             query["currency"] = params["currency"]
         try:
             r = self.session.get(url, params=query, timeout=12)
-            if r.status_code == 401 or r.status_code == 403:
+            if r.status_code in (401, 403):
                 logger.warning(f"Vinted auth failed: {r.status_code}")
                 return []
             r.raise_for_status()
@@ -229,25 +246,26 @@ class VintedClient:
             return []
 
     def buy(self, item_id: str) -> Dict[str, Any]:
-        """Attempt to autobuy. Returns dict with success/url/message.
-        Real autobuy requires logged-in cookies and CSRF tokens.
-        We construct the checkout URL and POST the buy intent.
-        """
+        """Autobuy — skips the GET item page if we have a fresh cached CSRF (saves 500-800ms)."""
         if not self.cookie:
             return {"success": False, "message": "Vinted session cookie not configured. Add it in Settings."}
-        # Fetch CSRF from item page if not present
-        try:
-            page = self.session.get(f"https://{self.domain}/items/{item_id}", timeout=10)
-            m = re.search(r'"CSRF_TOKEN":"([^"]+)"', page.text)
-            if m:
-                self._csrf = m.group(1)
-        except Exception as e:
-            return {"success": False, "message": f"Failed to load item page: {e}"}
-        if not self._csrf:
-            return {"success": False, "message": "CSRF token not found. Session may be invalid."}
+        csrf = self.refresh_csrf(force=False)
+        if not csrf:
+            # last-resort fallback: pull from the item page
+            try:
+                page = self.session.get(f"https://{self.domain}/items/{item_id}", timeout=10)
+                m = re.search(r'"CSRF_TOKEN":"([^"]+)"', page.text)
+                if m:
+                    csrf = m.group(1)
+                    self._csrf = csrf
+                    self._csrf_refreshed_at = datetime.now(timezone.utc).timestamp()
+            except Exception as e:
+                return {"success": False, "message": f"CSRF refresh failed: {e}"}
+        if not csrf:
+            return {"success": False, "message": "CSRF token not available. Session may be invalid."}
         url = f"https://{self.domain}/api/v2/transactions"
         payload = {"transaction": {"item_id": int(item_id)}}
-        headers = {"X-Csrf-Token": self._csrf, "Content-Type": "application/json"}
+        headers = {"X-Csrf-Token": csrf, "Content-Type": "application/json"}
         try:
             r = self.session.post(url, json=payload, headers=headers, timeout=15)
             if r.status_code in (200, 201):
@@ -261,10 +279,17 @@ class VintedClient:
 
 
 async def get_vinted_client(user_id: str) -> VintedClient:
+    cached = _client_cache.get(user_id)
     cfg = await db.vinted_configs.find_one({"user_id": user_id})
-    if not cfg:
-        return VintedClient(domain="www.vinted.it")
-    return VintedClient(domain=cfg.get("domain", "www.vinted.it"), cookie=cfg.get("cookie", ""), user_agent=cfg.get("user_agent"))
+    domain = (cfg or {}).get("domain", "www.vinted.it")
+    cookie = (cfg or {}).get("cookie", "")
+    ua = (cfg or {}).get("user_agent")
+    # Reuse if config unchanged (same domain + cookie) — keeps TLS connection alive
+    if cached and cached.domain == domain.replace("https://", "").replace("http://", "").strip().rstrip("/") and cached.cookie == cookie:
+        return cached
+    client = VintedClient(domain=domain, cookie=cookie, user_agent=ua)
+    _client_cache[user_id] = client
+    return client
 
 
 # -----------------------------------------------------------------------------
@@ -531,6 +556,11 @@ async def _execute_search(d: dict) -> Dict[str, Any]:
         await db.items_cache.insert_many(new_items_to_store)
 
     elapsed = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+    # Track in ring buffer for p50/p95
+    buf = _latency_buffer.setdefault(search_id, [])
+    buf.append(elapsed)
+    if len(buf) > 50:
+        del buf[0:len(buf) - 50]
     await db.searches.update_one(
         {"_id": d["_id"]},
         {"$set": {
@@ -583,9 +613,23 @@ WORKER_STATE: Dict[str, Any] = {
     "total_polls": 0,
     "total_errors": 0,
     "last_tick_at": None,
+    "tls_impersonation": "chrome120",
 }
 _search_locks: Dict[str, asyncio.Lock] = {}
 _worker_task: Optional[asyncio.Task] = None
+_csrf_warmer_task: Optional[asyncio.Task] = None
+# Latency ring buffer per search: list of last 50 elapsed_ms values
+_latency_buffer: Dict[str, List[int]] = {}
+# Cached VintedClient per user (avoids re-creating TLS session on every poll)
+_client_cache: Dict[str, "VintedClient"] = {}
+
+
+def _pct(values: List[int], p: float) -> Optional[int]:
+    if not values:
+        return None
+    s = sorted(values)
+    k = int(round((p / 100.0) * (len(s) - 1)))
+    return s[k]
 
 
 async def _poll_one(search_doc: dict) -> None:
@@ -637,12 +681,52 @@ async def background_worker() -> None:
         await asyncio.sleep(0.5)
 
 
+async def csrf_prewarmer() -> None:
+    """Every 45s, force-refresh CSRF tokens for all configured users so autobuy POSTs skip the GET-HTML step."""
+    while True:
+        try:
+            cur = db.vinted_configs.find({"cookie": {"$ne": ""}})
+            user_ids = [c["user_id"] async for c in cur]
+            for uid in user_ids:
+                try:
+                    client = await get_vinted_client(uid)
+                    await asyncio.to_thread(client.refresh_csrf, True)
+                except Exception as e:
+                    logger.warning(f"[csrf-warmer] {uid}: {e}")
+        except Exception as e:
+            logger.exception(f"[csrf-warmer] loop: {e}")
+        await asyncio.sleep(45)
+
+
 @api.get("/worker/status")
 async def worker_status(user: dict = Depends(get_current_user)):
+    # Aggregate latency across user's searches
+    user_search_ids = [str(s["_id"]) async for s in db.searches.find({"user_id": user["id"]}, {"_id": 1})]
+    all_latencies: List[int] = []
+    per_search_metrics = {}
+    for sid in user_search_ids:
+        b = _latency_buffer.get(sid, [])
+        if b:
+            all_latencies.extend(b)
+            per_search_metrics[sid] = {
+                "p50": _pct(b, 50), "p95": _pct(b, 95),
+                "last": b[-1], "samples": len(b),
+            }
+    # CSRF cache status
+    client = _client_cache.get(user["id"])
+    csrf_age = None
+    if client and client._csrf_refreshed_at:
+        csrf_age = int(datetime.now(timezone.utc).timestamp() - client._csrf_refreshed_at)
     return {
         **WORKER_STATE,
         "active_searches": await db.searches.count_documents({"user_id": user["id"], "enabled": {"$ne": False}}),
         "total_searches": await db.searches.count_documents({"user_id": user["id"]}),
+        "p50_ms": _pct(all_latencies, 50),
+        "p95_ms": _pct(all_latencies, 95),
+        "samples": len(all_latencies),
+        "csrf_cached": bool(client and client._csrf),
+        "csrf_age_seconds": csrf_age,
+        "per_search_metrics": per_search_metrics,
     }
 
 
@@ -739,16 +823,19 @@ async def startup():
     elif not verify_password(pw, existing["password_hash"]):
         await db.users.update_one({"email": email}, {"$set": {"password_hash": hash_password(pw)}})
 
-    # Launch background worker
-    global _worker_task
+    # Launch background worker + CSRF prewarmer
+    global _worker_task, _csrf_warmer_task
     _worker_task = asyncio.create_task(background_worker())
+    _csrf_warmer_task = asyncio.create_task(csrf_prewarmer())
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    global _worker_task
+    global _worker_task, _csrf_warmer_task
     if _worker_task:
         _worker_task.cancel()
+    if _csrf_warmer_task:
+        _csrf_warmer_task.cancel()
     client.close()
 
 
