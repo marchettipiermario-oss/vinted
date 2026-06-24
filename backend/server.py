@@ -628,6 +628,26 @@ async def _execute_search(d: dict) -> Dict[str, Any]:
     if new_items_to_store:
         await db.items_cache.insert_many(new_items_to_store)
 
+    # Telegram notifications
+    tg_cfg = await db.telegram_configs.find_one({"user_id": user_id})
+    if tg_cfg and tg_cfg.get("bot_token") and tg_cfg.get("chat_id"):
+        if tg_cfg.get("notify_drops", True) and new_items_to_store:
+            for entry in new_items_to_store[:5]:  # cap notifications per tick
+                it = entry["data"]
+                price = f"{it['price']:.2f} {it['currency']}" if it.get("price") is not None else "—"
+                vurl = it["url"] if it["url"].startswith("http") else f"https://www.vinted.it{it['url']}"
+                msg = f"🔥 <b>NEW DROP</b> · {d.get('name', '')}\n<b>{it['title']}</b>\n{it.get('brand', '')} · size {it.get('size', '—')} · <b>{price}</b>\n<a href=\"{vurl}\">Open on Vinted</a>"
+                asyncio.create_task(_send_telegram(user_id, msg))
+        if tg_cfg.get("notify_autobuy", True) and autobuy_attempts:
+            for a in autobuy_attempts:
+                r = a["result"]
+                if r.get("success"):
+                    co = r.get("checkout_url", "")
+                    msg = f"💰 <b>AUTOBUY OK</b> · item {a['item_id']}\n<a href=\"{co}\">→ Open checkout (5 min to pay)</a>"
+                else:
+                    msg = f"⚠️ Autobuy failed on {a['item_id']}: {r.get('message', '')[:120]}"
+                asyncio.create_task(_send_telegram(user_id, msg))
+
     elapsed = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
     # Track in ring buffer for p50/p95
     buf = _latency_buffer.setdefault(search_id, [])
@@ -817,6 +837,60 @@ async def toggle_search(search_id: str, user: dict = Depends(get_current_user)):
     new_enabled = not d.get("enabled", True)
     await db.searches.update_one({"_id": d["_id"]}, {"$set": {"enabled": new_enabled}})
     return {"enabled": new_enabled}
+
+
+class TelegramConfigIn(BaseModel):
+    bot_token: str = ""
+    chat_id: str = ""
+    notify_drops: bool = True
+    notify_autobuy: bool = True
+
+
+async def _send_telegram(user_id: str, text: str) -> bool:
+    cfg = await db.telegram_configs.find_one({"user_id": user_id})
+    if not cfg or not cfg.get("bot_token") or not cfg.get("chat_id"):
+        return False
+    url = f"https://api.telegram.org/bot{cfg['bot_token']}/sendMessage"
+    payload = {"chat_id": cfg["chat_id"], "text": text, "parse_mode": "HTML", "disable_web_page_preview": False}
+    try:
+        # fire-and-forget via curl_cffi sync (Telegram is fast, ~100ms)
+        def _send():
+            return cffi_requests.post(url, json=payload, timeout=8, impersonate="chrome120")
+        r = await asyncio.to_thread(_send)
+        return r.status_code == 200
+    except Exception as e:
+        logger.warning(f"telegram send failed: {e}")
+        return False
+
+
+@api.get("/telegram/config")
+async def get_telegram(user: dict = Depends(get_current_user)):
+    cfg = await db.telegram_configs.find_one({"user_id": user["id"]})
+    if not cfg:
+        return {"bot_token": "", "chat_id": "", "notify_drops": True, "notify_autobuy": True, "configured": False}
+    return {
+        "bot_token": cfg.get("bot_token", ""),
+        "chat_id": cfg.get("chat_id", ""),
+        "notify_drops": cfg.get("notify_drops", True),
+        "notify_autobuy": cfg.get("notify_autobuy", True),
+        "configured": bool(cfg.get("bot_token") and cfg.get("chat_id")),
+    }
+
+
+@api.put("/telegram/config")
+async def update_telegram(payload: TelegramConfigIn, user: dict = Depends(get_current_user)):
+    await db.telegram_configs.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"user_id": user["id"], **payload.model_dump(), "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.post("/telegram/test")
+async def test_telegram(user: dict = Depends(get_current_user)):
+    ok = await _send_telegram(user["id"], "🟢 <b>VINTED.BOT</b> · Telegram connected successfully.\nYou will receive drops and autobuy notifications here.")
+    return {"ok": ok}
 
 
 @api.post("/buy")

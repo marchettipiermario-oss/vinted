@@ -10,6 +10,24 @@ export default function Settings() {
   const [pool, setPool] = useState([]);
   const [newLabel, setNewLabel] = useState("");
   const [newCookie, setNewCookie] = useState("");
+  const [tg, setTg] = useState({ bot_token: "", chat_id: "", notify_drops: true, notify_autobuy: true, configured: false });
+
+  const saveTg = async () => {
+    try {
+      await api.put("/telegram/config", { bot_token: tg.bot_token, chat_id: tg.chat_id, notify_drops: tg.notify_drops, notify_autobuy: tg.notify_autobuy });
+      toast.success("Telegram saved");
+      const { data } = await api.get("/telegram/config");
+      setTg(data);
+    } catch { toast.error("Save failed"); }
+  };
+
+  const testTg = async () => {
+    try {
+      const { data } = await api.post("/telegram/test");
+      if (data.ok) toast.success("Test message sent — check your Telegram");
+      else toast.error("Failed — check token/chat_id");
+    } catch { toast.error("Test failed"); }
+  };
 
   const loadPool = async () => {
     try {
@@ -25,6 +43,10 @@ export default function Settings() {
         setCfg(data);
       } catch { /* ignore */ }
       loadPool();
+      try {
+        const { data } = await api.get("/telegram/config");
+        setTg(data);
+      } catch { /* ignore */ }
     })();
   }, []);
 
@@ -143,6 +165,38 @@ export default function Settings() {
               <button onClick={() => deleteCookie(c.id)} className="brut-border bg-white p-1 hover:bg-[#FF3B30] hover:text-white" data-testid={`pool-delete-${c.id}`}><Trash2 size={14} /></button>
             </div>
           ))}
+        </div>
+      </div>
+      <div className="brut-card p-6 space-y-4" data-testid="telegram-section">
+        <h2 className="font-head text-2xl font-black tracking-tighter">// Telegram Notifications</h2>
+        <div className="brut-border bg-blue-50 p-3 font-mono text-xs">
+          1) Chatta con <strong>@BotFather</strong> su Telegram → <code>/newbot</code> → copia il <strong>token</strong>.<br/>
+          2) Apri il tuo bot → invia un messaggio qualsiasi → vai su <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> → copia il <strong>chat_id</strong> dal risultato.
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="brut-label">Bot Token</label>
+            <input data-testid="tg-token-input" className="brut-input" value={tg.bot_token} onChange={(e) => setTg({ ...tg, bot_token: e.target.value })} placeholder="123456:ABC-..." />
+          </div>
+          <div>
+            <label className="brut-label">Chat ID</label>
+            <input data-testid="tg-chatid-input" className="brut-input" value={tg.chat_id} onChange={(e) => setTg({ ...tg, chat_id: e.target.value })} placeholder="123456789" />
+          </div>
+        </div>
+        <div className="flex gap-4 flex-wrap">
+          <label className="flex items-center gap-2 font-mono text-xs uppercase">
+            <input type="checkbox" data-testid="tg-notify-drops" checked={tg.notify_drops} onChange={(e) => setTg({ ...tg, notify_drops: e.target.checked })} />
+            Notify new drops
+          </label>
+          <label className="flex items-center gap-2 font-mono text-xs uppercase">
+            <input type="checkbox" data-testid="tg-notify-autobuy" checked={tg.notify_autobuy} onChange={(e) => setTg({ ...tg, notify_autobuy: e.target.checked })} />
+            Notify autobuy
+          </label>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={saveTg} className="brut-btn" data-testid="tg-save-btn">Save</button>
+          <button onClick={testTg} className="brut-btn brut-btn-secondary" data-testid="tg-test-btn">Send test message</button>
+          {tg.configured && <span className="font-mono text-xs uppercase tracking-widest flex items-center gap-1 text-[#00C853]"><Check size={14} /> Telegram connected</span>}
         </div>
       </div>
     </div>
