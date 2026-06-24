@@ -1,0 +1,126 @@
+{
+  "theme": "LIGHT",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "emotional_tone": "Clinical precision, speed, reliability, and aggressive utility.",
+  "visual_mood": "Swiss Brutalist, Neo-brutalist. Data-dense, stark typography, raw structure with hard borders and high-impact accent colors.",
+  "typography": {
+    "font_families": {
+      "headings": "Cabinet Grotesk, sans-serif",
+      "body": "Satoshi, sans-serif",
+      "monospace": "JetBrains Mono, monospace"
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl font-black tracking-tighter",
+      "h2": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "h3": "text-xl sm:text-2xl font-bold tracking-tight",
+      "h4": "text-lg font-bold",
+      "body": "text-base font-medium",
+      "small": "text-sm font-medium",
+      "data_labels": "text-xs font-bold uppercase tracking-[0.2em] font-mono"
+    },
+    "rules": [
+      "No generic 'Inter' for headings.",
+      "Data points, prices, and timestamps must use JetBrains Mono.",
+      "Headings must be extremely tight in tracking.",
+      "Never center-align data or forms; strict left-alignment to enforce grid structure."
+    ]
+  },
+  "colors": {
+    "background": "#F9FAFB",
+    "surface": "#FFFFFF",
+    "text_primary": "#000000",
+    "text_secondary": "#4B5563",
+    "primary_accent": "#002FA7",
+    "destructive_accent": "#FF3B30",
+    "success_accent": "#00C853",
+    "border": "#000000",
+    "css_variables_update": {
+      "--background": "210 20% 98%",
+      "--foreground": "0 0% 0%",
+      "--card": "0 0% 100%",
+      "--card-foreground": "0 0% 0%",
+      "--popover": "0 0% 100%",
+      "--popover-foreground": "0 0% 0%",
+      "--primary": "223 100% 33%",
+      "--primary-foreground": "0 0% 100%",
+      "--secondary": "0 0% 90%",
+      "--secondary-foreground": "0 0% 0%",
+      "--muted": "0 0% 90%",
+      "--muted-foreground": "215 16% 47%",
+      "--accent": "223 100% 33%",
+      "--accent-foreground": "0 0% 100%",
+      "--destructive": "0 100% 59%",
+      "--destructive-foreground": "0 0% 100%",
+      "--border": "0 0% 0%",
+      "--input": "0 0% 0%",
+      "--ring": "223 100% 33%",
+      "--radius": "0rem"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "The 'Control Room' Grid. Zero rounded corners. Hard 2px black borders everywhere. Density and scanability.",
+    "grid_system": {
+      "base": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4",
+      "gap": "gap-4 sm:gap-6"
+    },
+    "containers": "border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]",
+    "padding": "p-4 sm:p-6",
+    "alignment": "Strict mobile-first. All grid items stretch to match height. Subgrid where possible."
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-white border-2 border-black font-bold uppercase tracking-wide hover:-translate-y-1 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-transform",
+      "secondary": "bg-white text-black border-2 border-black font-bold uppercase tracking-wide hover:bg-black hover:text-white transition-colors",
+      "destructive": "bg-destructive text-white border-2 border-black font-bold uppercase tracking-wide hover:-translate-y-1 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-transform"
+    },
+    "cards": {
+      "item_card": "flex flex-col border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:-translate-y-1 transition-all h-full",
+      "image_container": "border-b-2 border-black bg-gray-100 overflow-hidden relative",
+      "badge_new": "absolute top-2 left-2 bg-destructive text-white text-xs font-black uppercase px-2 py-1 border-2 border-black font-mono",
+      "autobuy_indicator": "absolute top-2 right-2 bg-black text-white text-xs font-black uppercase px-2 py-1 border-2 border-white font-mono flex items-center gap-1"
+    },
+    "inputs": {
+      "text": "border-2 border-black bg-white rounded-none px-4 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]",
+      "select": "border-2 border-black bg-white rounded-none shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+    }
+  },
+  "motion": {
+    "philosophy": "Snappy, mechanical, immediate. No slow fades.",
+    "hover": "Hover states must pop and offset abruptly (e.g., hard shadow displacement).",
+    "transitions": "transition-transform duration-100 ease-out, transition-colors duration-100 ease-out"
+  },
+  "media": {
+    "clothing_samples": [
+      {
+        "url": "https://images.unsplash.com/photo-1647664856968-880b8eccd588?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwzfHx2aW50YWdlJTIwc3RyZWV0d2VhciUyMGNsb3RoaW5nfGVufDB8fHx8MTc4MjI5MjI5M3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Vintage shirts on rack (use for mockup item #1)"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1688148484023-b56a9b91525a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHw0fHx2aW50YWdlJTIwc3RyZWV0d2VhciUyMGNsb3RoaW5nfGVufDB8fHx8MTc4MjI5MjI5M3ww&ixlib=rb-4.1.0&q=85",
+        "description": "Vintage jacket (use for mockup item #2)"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwyfHxzbmVha2Vyc3xlbnwwfHx8fDE3ODIyOTIyOTJ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Neon green Nike sneakers (use for mockup item #3)"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwxfHxzbmVha2Vyc3xlbnwwfHx8fDE3ODIyOTIyOTJ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Red Nike sneaker (use for mockup item #4)"
+      }
+    ]
+  },
+  "accessibility": {
+    "contrast": "Extreme contrast. Pure black borders ensure 21:1 contrast against white backgrounds.",
+    "testing_attributes": "All interactive elements (buttons, inputs, toggles, item cards) MUST have data-testid attributes (e.g., data-testid=\"autobuy-toggle-btn\")."
+  },
+  "instructions_to_main_agent": [
+    "Install `@phosphor-icons/react` for technical, sharp icons.",
+    "Update `tailwind.config.js` with the provided css_variables_update mapping.",
+    "Change global radius in `index.css` to 0rem. We are using Neo-Brutalism (sharp edges).",
+    "Use Shadcn UI components but heavy customize them: remove `rounded-md`, add `border-2 border-black` and hard shadows `shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]`.",
+    "For the live feed grid, items should appear to snap into place. Use the item_card component style.",
+    "The search creation form should look like a terminal or technical control panel: dense, clearly labeled with monospace fonts for metadata.",
+    "Use the provided image URLs as placeholders for the real-time Vinted feed.",
+    "Ensure the 'Auto-buy' toggle is extremely prominent, using the Red/Green color coding to signify danger/active state clearly."
+  ]
+}
