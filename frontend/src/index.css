@@ -2,74 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Archivo:wght@400;500;700;800;900&display=swap');
+
 body {
     margin: 0;
-    font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-        "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-        sans-serif;
+    font-family: 'Archivo', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background: #F9FAFB;
+    color: #000;
 }
 
-code {
-    font-family:
-        source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+.font-mono, code, pre {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.font-head {
+    font-family: 'Archivo', sans-serif;
+    letter-spacing: -0.03em;
 }
 
 @layer base {
     :root {
-        --background: 0 0% 100%;
-        --foreground: 0 0% 3.9%;
+        --background: 210 20% 98%;
+        --foreground: 0 0% 0%;
         --card: 0 0% 100%;
-        --card-foreground: 0 0% 3.9%;
+        --card-foreground: 0 0% 0%;
         --popover: 0 0% 100%;
-        --popover-foreground: 0 0% 3.9%;
-        --primary: 0 0% 9%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 0 0% 96.1%;
-        --secondary-foreground: 0 0% 9%;
-        --muted: 0 0% 96.1%;
-        --muted-foreground: 0 0% 45.1%;
-        --accent: 0 0% 96.1%;
-        --accent-foreground: 0 0% 9%;
-        --destructive: 0 84.2% 60.2%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 89.8%;
-        --input: 0 0% 89.8%;
-        --ring: 0 0% 3.9%;
-        --chart-1: 12 76% 61%;
-        --chart-2: 173 58% 39%;
-        --chart-3: 197 37% 24%;
-        --chart-4: 43 74% 66%;
-        --chart-5: 27 87% 67%;
-        --radius: 0.5rem;
-    }
-    .dark {
-        --background: 0 0% 3.9%;
-        --foreground: 0 0% 98%;
-        --card: 0 0% 3.9%;
-        --card-foreground: 0 0% 98%;
-        --popover: 0 0% 3.9%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 0 0% 98%;
-        --primary-foreground: 0 0% 9%;
-        --secondary: 0 0% 14.9%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 0 0% 14.9%;
-        --muted-foreground: 0 0% 63.9%;
-        --accent: 0 0% 14.9%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 0 62.8% 30.6%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 14.9%;
-        --input: 0 0% 14.9%;
-        --ring: 0 0% 83.1%;
-        --chart-1: 220 70% 50%;
-        --chart-2: 160 60% 45%;
-        --chart-3: 30 80% 55%;
-        --chart-4: 280 65% 60%;
-        --chart-5: 340 75% 55%;
+        --popover-foreground: 0 0% 0%;
+        --primary: 223 100% 33%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 0 0% 90%;
+        --secondary-foreground: 0 0% 0%;
+        --muted: 0 0% 94%;
+        --muted-foreground: 215 16% 47%;
+        --accent: 223 100% 33%;
+        --accent-foreground: 0 0% 100%;
+        --destructive: 0 100% 59%;
+        --destructive-foreground: 0 0% 100%;
+        --success: 144 100% 39%;
+        --border: 0 0% 0%;
+        --input: 0 0% 0%;
+        --ring: 223 100% 33%;
+        --radius: 0rem;
     }
 }
 
@@ -82,34 +57,77 @@ code {
     }
 }
 
-@layer base {
-    [data-debug-wrapper="true"] {
-        display: contents !important;
-    }
+/* Neo-brutalist utilities */
+.brut-border { border: 2px solid #000; }
+.brut-shadow { box-shadow: 4px 4px 0px 0px rgba(0,0,0,1); }
+.brut-shadow-sm { box-shadow: 2px 2px 0px 0px rgba(0,0,0,1); }
+.brut-shadow-lg { box-shadow: 6px 6px 0px 0px rgba(0,0,0,1); }
 
-    [data-debug-wrapper="true"] > * {
-        margin-left: inherit;
-        margin-right: inherit;
-        margin-top: inherit;
-        margin-bottom: inherit;
-        padding-left: inherit;
-        padding-right: inherit;
-        padding-top: inherit;
-        padding-bottom: inherit;
-        column-gap: inherit;
-        row-gap: inherit;
-        gap: inherit;
-        border-left-width: inherit;
-        border-right-width: inherit;
-        border-top-width: inherit;
-        border-bottom-width: inherit;
-        border-left-style: inherit;
-        border-right-style: inherit;
-        border-top-style: inherit;
-        border-bottom-style: inherit;
-        border-left-color: inherit;
-        border-right-color: inherit;
-        border-top-color: inherit;
-        border-bottom-color: inherit;
-    }
+.brut-card {
+    border: 2px solid #000;
+    background: #fff;
+    box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+    transition: transform 100ms ease-out, box-shadow 100ms ease-out;
 }
+.brut-card:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0px 0px rgba(0,0,0,1);
+}
+
+.brut-btn {
+    border: 2px solid #000;
+    background: #002FA7;
+    color: #fff;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.6rem 1.2rem;
+    box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+    transition: transform 100ms ease-out, box-shadow 100ms ease-out;
+    cursor: pointer;
+}
+.brut-btn:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0px 0px rgba(0,0,0,1); }
+.brut-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+.brut-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.brut-btn-secondary { background: #fff; color: #000; }
+.brut-btn-destructive { background: #FF3B30; color: #fff; }
+.brut-btn-success { background: #00C853; color: #000; }
+
+.brut-input {
+    border: 2px solid #000;
+    background: #fff;
+    padding: 0.55rem 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.875rem;
+    width: 100%;
+    box-shadow: 2px 2px 0px 0px rgba(0,0,0,1);
+}
+.brut-input:focus { outline: none; box-shadow: 4px 4px 0px 0px rgba(0,0,0,1); transform: translate(-1px, -1px); }
+
+.brut-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: #000;
+    display: block;
+    margin-bottom: 0.4rem;
+}
+
+@keyframes flash-new {
+    0% { background-color: #FF3B30; }
+    100% { background-color: transparent; }
+}
+.flash-new { animation: flash-new 1.5s ease-out; }
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+.pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+/* hide scrollbar but keep functional */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

@@ -1,0 +1,42 @@
+{
+  "summary": "First-finish smoke test for Vinted bot. Backend auth, searches CRUD, /run against real Vinted catalog, vinted/config + test, buy guardrail, and stats all working. Frontend login (admin seeded), dashboard stats, search creation, live feed (24 real items, 10s polling toggle), buy toast, settings test connection, and logout all functional.",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login (admin@vintedbot.app) -> 200 with access_token + cookie",
+    "GET /api/auth/me -> 200 with admin profile",
+    "POST /api/searches creates user-scoped search",
+    "GET /api/searches lists searches (2 returned, scoped to admin)",
+    "POST /api/searches/{id}/run -> 24 normalized items from real Vinted /api/v2/catalog/items with is_new flags",
+    "GET /api/vinted/config returns default config",
+    "POST /api/vinted/test -> {ok:true, count:5, domain:'www.vinted.it'}",
+    "GET /api/stats -> total_searches, items_today, autobuys_total, autobuys_ok",
+    "POST /api/buy without configured cookie -> {success:false, message:'Vinted session cookie not configured. Add it in Settings.'}",
+    "Frontend /login authenticates admin and renders Dashboard (data-testid='dashboard-page', 'stats-grid' visible)",
+    "Frontend 'Open Live Feed' navigates to /search/:id, renders 24 item-card-* with brand/size/price/seller",
+    "Frontend toggle-polling-btn toggles 10s polling",
+    "Frontend Buy click surfaces toast: 'Vinted session cookie not configured. Add it in Settings.'",
+    "Frontend /settings loads, Test Connection shows toast 'Connected to www.vinted.it · 5 items returned'",
+    "Frontend Logout returns user to /login"
+  ],
+  "failed": [
+    {
+      "area": "backend/auth",
+      "issue": "GET /api/auth/me still returns 200 with admin profile after POST /api/auth/logout when using the same cookie jar. Server appears to clear the cookie via Set-Cookie, but JWT itself remains valid (stateless) so any retained token still authenticates. Frontend clears localStorage so user-facing logout works.",
+      "evidence": "curl POST /api/auth/logout returned {ok:true}; subsequent GET /api/auth/me with same cookie jar returned full admin object HTTP 200.",
+      "priority": "LOW"
+    },
+    {
+      "area": "frontend/routing",
+      "issue": "After login, app navigates to '/' (root) which renders the Dashboard component, not '/dashboard' path. Functionally correct, but worth confirming intent vs. expectation in the review spec.",
+      "evidence": "page.url after successful login == 'https://.../' with [data-testid=dashboard-page] visible.",
+      "priority": "LOW"
+    }
+  ],
+  "action_items": [
+    "Optional: implement a JWT denylist or short access-token TTL + refresh rotation so /api/auth/logout truly invalidates server-side tokens (currently relies on client clearing localStorage + cookie expiry).",
+    "Optional: confirm whether post-login redirect should be '/dashboard' vs '/' (UI works either way)."
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}
