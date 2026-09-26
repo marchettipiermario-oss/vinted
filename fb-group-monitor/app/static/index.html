@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monitor gruppi Facebook</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔎</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Monitor gruppi Facebook</h1>
+    <nav id="tabs">
+      <button data-tab="status" class="active">Stato</button>
+      <button data-tab="matches">Post trovati</button>
+      <button data-tab="groups">Gruppi</button>
+      <button data-tab="rules">Regole</button>
+      <button data-tab="settings">Impostazioni</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- STATO -->
+    <section id="tab-status" class="tab active">
+      <div id="alert" class="alert hidden"></div>
+      <div class="cards">
+        <div class="card"><span class="label">Monitor</span><strong id="st-phase">—</strong></div>
+        <div class="card"><span class="label">Facebook</span><strong id="st-login">—</strong></div>
+        <div class="card"><span class="label">Gruppo in controllo</span><strong id="st-group">—</strong></div>
+        <div class="card"><span class="label">Prossimo ciclo</span><strong id="st-next">—</strong></div>
+        <div class="card"><span class="label">Gruppi · Regole</span><strong id="st-counts">—</strong></div>
+        <div class="card"><span class="label">Post letti</span><strong id="st-posts">—</strong></div>
+        <div class="card"><span class="label">Notifiche</span><strong id="st-channels">—</strong></div>
+      </div>
+      <div class="actions">
+        <button id="btn-login">1. Apri Facebook per il login</button>
+        <button id="btn-resume" class="primary">Avvia monitor</button>
+        <button id="btn-pause">Metti in pausa</button>
+        <button id="btn-run">Controlla ora</button>
+      </div>
+      <p class="hint">
+        Primo avvio: premi «Apri Facebook per il login», accedi nella finestra di Chrome che si apre,
+        aggiungi gruppi e regole, poi «Avvia monitor». La prima lettura di ogni gruppo salva i post
+        già presenti senza notificarli: da lì in poi ricevi solo i post nuovi.
+      </p>
+    </section>
+
+    <!-- POST TROVATI -->
+    <section id="tab-matches" class="tab">
+      <div class="row-between">
+        <h2>Post trovati</h2>
+        <button id="btn-refresh-matches">Aggiorna</button>
+      </div>
+      <div id="matches-list" class="list"></div>
+    </section>
+
+    <!-- GRUPPI -->
+    <section id="tab-groups" class="tab">
+      <h2>Gruppi</h2>
+      <form id="group-form" class="inline-form">
+        <input name="url" placeholder="Link del gruppo, es. https://www.facebook.com/groups/123456" required>
+        <input name="name" placeholder="Nome (facoltativo)">
+        <button class="primary">Aggiungi</button>
+      </form>
+      <details class="bulk">
+        <summary>Aggiungi molti gruppi insieme</summary>
+        <textarea id="bulk-groups" rows="6" placeholder="Un link per riga"></textarea>
+        <button id="btn-bulk">Aggiungi tutti</button>
+      </details>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Attivo</th><th>Gruppo</th><th>Ultimo controllo</th><th>Stato</th><th></th></tr></thead>
+          <tbody id="groups-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- REGOLE -->
+    <section id="tab-rules" class="tab">
+      <h2>Regole di ricerca</h2>
+      <form id="rule-form" class="grid-form">
+        <input type="hidden" name="id">
+        <label>Nome<input name="name" required placeholder="es. Nike sotto 50 €"></label>
+        <label>Parole chiave <small>(separate da virgola, basta una)</small>
+          <input name="keywords" placeholder="nike, air max, jordan"></label>
+        <label>Parole da escludere <small>(separate da virgola)</small>
+          <input name="exclude" placeholder="cerco, rotto, bambino"></label>
+        <label>Prezzo minimo €<input name="min_price" type="number" step="0.01" min="0"></label>
+        <label>Prezzo massimo €<input name="max_price" type="number" step="0.01" min="0"></label>
+        <label class="check"><input type="checkbox" name="require_price"> Scarta i post senza prezzo</label>
+        <label class="full">Solo in questi gruppi <small>(nessuno selezionato = tutti)</small>
+          <select name="group_ids" multiple size="5"></select></label>
+        <div class="full actions">
+          <button class="primary" type="submit">Salva regola</button>
+          <button type="button" id="btn-rule-cancel" class="hidden">Annulla modifica</button>
+        </div>
+      </form>
+      <div id="rules-list" class="list"></div>
+    </section>
+
+    <!-- IMPOSTAZIONI -->
+    <section id="tab-settings" class="tab">
+      <form id="settings-form">
+        <h2>Notifiche</h2>
+        <fieldset>
+          <legend>Discord</legend>
+          <label>Webhook URL <input name="discord_webhook_url" type="password" autocomplete="off"></label>
+          <p class="hint">Canale Discord → Modifica canale → Integrazioni → Webhook → Nuovo webhook → Copia URL.</p>
+        </fieldset>
+        <fieldset>
+          <legend>Telegram</legend>
+          <label>Token del bot <input name="telegram_bot_token" type="password" autocomplete="off"></label>
+          <label>Chat ID <input name="telegram_chat_id"></label>
+          <p class="hint">Crea il bot con @BotFather, scrivigli un messaggio, poi leggi il tuo chat ID con @userinfobot.</p>
+        </fieldset>
+        <fieldset>
+          <legend>WhatsApp (CallMeBot)</legend>
+          <label>Numero con prefisso <input name="whatsapp_phone" placeholder="+393331234567"></label>
+          <label>API key <input name="whatsapp_apikey" type="password" autocomplete="off"></label>
+          <p class="hint">Invia «I allow callmebot to send me messages» al numero indicato su callmebot.com: ti risponde con la API key.</p>
+        </fieldset>
+        <button type="button" id="btn-test-notify">Invia notifica di prova</button>
+
+        <h2>Ritmo dei controlli</h2>
+        <p class="hint">Valori prudenti per più di 20 gruppi. Controlli più frequenti aumentano il rischio che Facebook blocchi l'account.</p>
+        <div class="grid-form">
+          <label>Minuti tra un ciclo e l'altro<input name="interval_minutes" type="number" min="3"></label>
+          <label>Gruppi per ciclo<input name="groups_per_cycle" type="number" min="1" max="20"></label>
+          <label>Pausa tra gruppi, min (s)<input name="delay_between_groups_min" type="number" min="5"></label>
+          <label>Pausa tra gruppi, max (s)<input name="delay_between_groups_max" type="number" min="5"></label>
+          <label>Scroll per gruppo<input name="scrolls_per_group" type="number" min="0" max="15"></label>
+          <label>Limite pagine al giorno<input name="daily_page_limit" type="number" min="1"></label>
+          <label>Attivo dalle ore<input name="active_hour_start" type="number" min="0" max="23"></label>
+          <label>alle ore<input name="active_hour_end" type="number" min="0" max="23"></label>
+          <label class="check"><input type="checkbox" name="headless"> Browser invisibile (più riconoscibile come bot)</label>
+          <label>Browser<select name="browser_channel">
+            <option value="chrome">Google Chrome installato</option>
+            <option value="">Chromium di Playwright</option>
+          </select></label>
+        </div>
+        <p id="cycle-estimate" class="hint"></p>
+        <button class="primary">Salva impostazioni</button>
+      </form>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

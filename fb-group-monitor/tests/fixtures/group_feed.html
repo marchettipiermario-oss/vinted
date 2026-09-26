@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="it">
+<head><meta charset="utf-8"><title>(3) Compro Vendo Scarpe Milano | Facebook</title></head>
+<body>
+<!-- Struttura semplificata ma fedele agli attributi usati da Facebook -->
+<div role="main">
+  <div role="feed">
+    <!-- 1: post normale con messaggio e link permanente -->
+    <div>
+      <div role="article" aria-labelledby="a1">
+        <h3><a href="https://www.facebook.com/groups/123456/user/111/">Mario Rossi</a></h3>
+        <a href="https://www.facebook.com/groups/123456/posts/9876543210/?__cft__[0]=abc">2 min</a>
+        <div data-ad-preview="message">
+          <div dir="auto">Vendo Nike Air Max 90 taglia 43, usate due volte. 45€ spedizione inclusa</div>
+        </div>
+        <div role="button">Mi piace</div>
+        <!-- commento annidato: non deve diventare un post -->
+        <div role="article" aria-label="Commento di Luca">
+          <a href="https://www.facebook.com/groups/123456/posts/9876543210/?comment_id=5">1 min</a>
+          <div dir="auto">Ancora disponibili? Offro 30 €</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2: post lungo con "Altro" da espandere -->
+    <div>
+      <div role="article">
+        <h3><a href="https://www.facebook.com/groups/123456/user/222/">Giulia Bianchi</a></h3>
+        <a href="https://www.facebook.com/groups/123456/permalink/1111111111/">5 min</a>
+        <div data-ad-preview="message">
+          <div dir="auto" id="long">Cerco Adidas Samba bianche…</div>
+          <div role="button" id="more">Altro</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3: annuncio in formato "vendita": niente data-ad-preview, prezzo in un campo separato -->
+    <div>
+      <div role="article">
+        <h4><span>Paolo Verdi</span></h4>
+        <a href="https://www.facebook.com/groups/123456/?multi_permalinks=2222222222&amp;ref=share">1 h</a>
+        <span dir="auto">Jordan 1 Mid rosse</span>
+        <span dir="auto">120 €</span>
+        <span dir="auto">Milano, Lombardia</span>
+      </div>
+    </div>
+
+    <!-- 4: post senza link permanente (ID ricavato dal contenuto) -->
+    <div>
+      <div role="article">
+        <h3><a href="https://www.facebook.com/profile.php?id=333">Anna Neri</a></h3>
+        <div data-ad-preview="message"><div dir="auto">Regalo scatole per trasloco, zona Città Studi</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  // Simula l'espansione del testo quando si clicca "Altro".
+  document.getElementById('more').addEventListener('click', function () {
+    document.getElementById('long').innerText =
+      'Cerco Adidas Samba bianche taglia 40, budget massimo 70 euro. Solo zona Milano.';
+    this.remove();
+  });
+</script>
+</body>
+</html>
