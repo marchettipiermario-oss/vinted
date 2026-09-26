@@ -24,6 +24,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 # Campi che non vengono mai rimandati al browser in chiaro.
 SECRET_KEYS = {"discord_webhook_url", "telegram_bot_token", "whatsapp_apikey"}
+# Campi gestiti solo dall'app, non dal form delle impostazioni.
+INTERNAL_KEYS = {"paused", "notif_seeded"}
 
 
 # ---------- modelli delle richieste ----------
@@ -183,7 +185,7 @@ def create_app(db: Optional[Database] = None, browser: Optional[FacebookBrowser]
 
     @app.put("/api/settings")
     async def put_settings(body: dict):
-        values = {k: v for k, v in body.items() if k in DEFAULT_SETTINGS and k != "paused"}
+        values = {k: v for k, v in body.items() if k in DEFAULT_SETTINGS and k not in INTERNAL_KEYS}
         # I segreti vuoti lasciano il valore già salvato (il form non li riceve in chiaro).
         for key in SECRET_KEYS:
             if key in values and values[key] in ("", None, True):

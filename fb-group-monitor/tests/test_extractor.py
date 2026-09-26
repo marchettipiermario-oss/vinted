@@ -90,3 +90,29 @@ async def test_extract_from_fixture_page():
 def test_hash_id_is_stable():
     raw = [{"permalink": None, "text": "Regalo divano", "full_text": "", "author": "Anna"}]
     assert build_posts(raw, GROUP)[0]["id"] == build_posts(raw, GROUP)[0]["id"]
+
+
+def test_parse_notifications():
+    from app.extractor import parse_notifications
+    events = parse_notifications([
+        {"href": "https://www.facebook.com/groups/123/posts/456/?notif_id=1&notif_t=group_activity",
+         "text": 'Mario Rossi ha pubblicato in Compro Vendo Milano: "Vendo Nike 43 a 40€"\n3 minuti fa'},
+        {"href": "https://www.facebook.com/groups/123/posts/456/?notif_id=9", "text": "duplicato"},
+        {"href": "https://www.facebook.com/groups/mercatino/?ref=notif",
+         "text": "Luca e altre 5 persone hanno pubblicato in Mercatino Roma."},
+        {"href": "https://www.facebook.com/groups/feed/", "text": "I tuoi gruppi"},
+        {"href": "https://www.facebook.com/groups/abc/posts/7/", "text": "Anna posted in Sneakers Italia: “Jordan 1 for 100€”"},
+    ])
+    assert len(events) == 3
+    post, group, english = events
+    assert post == {**post, "kind": "post", "group_ref": "123", "post_id": "456",
+                    "group_name": "Compro Vendo Milano", "snippet": "Vendo Nike 43 a 40€",
+                    "post_url": "https://www.facebook.com/groups/123/posts/456/"}
+    assert group["kind"] == "group" and group["group_ref"] == "mercatino" and group["group_name"] == "Mercatino Roma"
+    assert english["group_name"] == "Sneakers Italia" and english["snippet"] == "Jordan 1 for 100€"
+
+
+def test_numeric_group_id_from_permalinks():
+    from app.extractor import numeric_group_id
+    assert numeric_group_id([{"permalink": None}, {"permalink": "https://www.facebook.com/groups/987/posts/1/"}]) == "987"
+    assert numeric_group_id([{"permalink": "https://www.facebook.com/groups/nome/posts/1/"}]) is None

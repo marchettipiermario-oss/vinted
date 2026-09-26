@@ -11,19 +11,27 @@ from typing import Any, Optional
 from .filters import Rule
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    # Ritmo dei controlli: pensato per molti gruppi senza insospettire Facebook.
-    "interval_minutes": 10,        # pausa tra un ciclo e l'altro (con variazione casuale)
-    "groups_per_cycle": 4,         # quanti gruppi apre per ciclo, a rotazione
-    "delay_between_groups_min": 25,  # secondi
-    "delay_between_groups_max": 75,
+    # Modalità veloce: legge la pagina delle notifiche di Facebook. Richiede che su
+    # ogni gruppo le notifiche siano impostate su "Tutti i post".
+    "notif_enabled": True,
+    "notif_interval_seconds": 40,  # ogni quanto ricarica le notifiche (con variazione casuale)
+    "notif_open_posts": True,      # apre il post per leggere testo completo e prezzo
+    # Scansione dei gruppi a rotazione: rete di sicurezza per ciò che le notifiche perdono.
+    "rotation_enabled": True,
+    "interval_minutes": 15,        # pausa tra un giro di gruppi e il successivo
+    "groups_per_cycle": 5,         # quanti gruppi apre per giro, a rotazione
+    "delay_between_groups_min": 20,  # secondi
+    "delay_between_groups_max": 60,
     "scrolls_per_group": 3,
-    "active_hour_start": 8,        # controlla solo in questa fascia oraria (ora locale)
-    "active_hour_end": 23,
-    "daily_page_limit": 250,       # tetto di pagine gruppo aperte al giorno
+    # Limiti generali
+    "active_hour_start": 0,        # fascia oraria attiva (ora locale); 0-0 = sempre
+    "active_hour_end": 0,
+    "daily_page_limit": 1500,      # pagine di gruppi e post aperte al giorno (le notifiche non contano)
     "headless": False,             # browser visibile: meno riconoscibile come bot
     "browser_channel": "chrome",   # usa Chrome installato sul Mac; "" = Chromium di Playwright
     "paused": True,                # parte in pausa finché non fai il login
-    # Notifiche
+    "notif_seeded": False,         # uso interno: la prima lettura delle notifiche non avvisa
+    # Notifiche in uscita
     "discord_webhook_url": "",
     "telegram_bot_token": "",
     "telegram_chat_id": "",
@@ -31,16 +39,16 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "whatsapp_apikey": "",
 }
 
-# Limiti applicati alle impostazioni numeriche, per evitare ritmi che farebbero bloccare l'account.
 SETTING_LIMITS: dict[str, tuple[int, int]] = {
-    "interval_minutes": (3, 1440),
-    "groups_per_cycle": (1, 20),
-    "delay_between_groups_min": (5, 600),
-    "delay_between_groups_max": (5, 900),
+    "notif_interval_seconds": (15, 3600),
+    "interval_minutes": (1, 1440),
+    "groups_per_cycle": (1, 100),
+    "delay_between_groups_min": (3, 600),
+    "delay_between_groups_max": (3, 900),
     "scrolls_per_group": (0, 15),
     "active_hour_start": (0, 23),
     "active_hour_end": (0, 23),
-    "daily_page_limit": (1, 2000),
+    "daily_page_limit": (1, 20000),
 }
 
 SCHEMA = """
@@ -48,6 +56,7 @@ CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     url TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL DEFAULT '',
+    fb_id TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     last_checked_at TEXT,
     last_error TEXT,
@@ -109,6 +118,9 @@ class Database:
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(SCHEMA)
+            cols = {r[1] for r in self._conn.execute("PRAGMA table_info(groups)")}
+            if "fb_id" not in cols:  # database creato dalla prima versione
+                self._conn.execute("ALTER TABLE groups ADD COLUMN fb_id TEXT")
             self._conn.commit()
 
     def _q(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
@@ -158,22 +170,45 @@ class Database:
         rows = self._q("SELECT * FROM groups WHERE id = ?", (group_id,))
         return dict(rows[0]) if rows else None
 
-    def add_group(self, url: str, name: str = "") -> dict:
+    def add_group(self, url: str, name: str = "", enabled: bool = True) -> dict:
         existing = self._q("SELECT id FROM groups WHERE url = ?", (url,))
         if existing:
             return self.get_group(existing[0]["id"])
+        slug = url.rstrip("/").rsplit("/", 1)[-1]
         gid = self._exec(
-            "INSERT INTO groups(url, name, created_at) VALUES(?, ?, ?)", (url, name, now_iso())
+            "INSERT INTO groups(url, name, fb_id, enabled, created_at) VALUES(?, ?, ?, ?, ?)",
+            (url, name, slug if slug.isdigit() else None, int(enabled), now_iso()),
         )
         return self.get_group(gid)
 
+    def find_group(self, ref: str) -> Optional[dict]:
+        """Trova un gruppo dal nome nel link (es. 'mercatinoroma') o dall'ID numerico."""
+        rows = self._q(
+            "SELECT * FROM groups WHERE fb_id = ? OR url = ? LIMIT 1",
+            (ref, f"https://www.facebook.com/groups/{ref}/"),
+        )
+        return dict(rows[0]) if rows else None
+
     def update_group(self, group_id: int, **fields) -> None:
-        allowed = {"name", "enabled", "last_checked_at", "last_error"}
+        allowed = {"name", "enabled", "fb_id", "last_checked_at", "last_error"}
         sets = {k: v for k, v in fields.items() if k in allowed}
         if not sets:
             return
         cols = ", ".join(f"{k} = ?" for k in sets)
         self._exec(f"UPDATE groups SET {cols} WHERE id = ?", (*sets.values(), group_id))
+
+    def link_group_id(self, group_id: int, fb_id: str) -> None:
+        """Salva l'ID numerico del gruppo e unisce un eventuale doppione
+        (lo stesso gruppo aggiunto dalle notifiche con l'ID numerico)."""
+        for dup in self._q(
+            "SELECT id, enabled FROM groups WHERE id != ? AND (fb_id = ? OR url = ?)",
+            (group_id, fb_id, f"https://www.facebook.com/groups/{fb_id}/"),
+        ):
+            self._exec("UPDATE posts SET group_id = ? WHERE group_id = ?", (group_id, dup["id"]))
+            if dup["enabled"]:
+                self._exec("UPDATE groups SET enabled = 1 WHERE id = ?", (group_id,))
+            self._exec("DELETE FROM groups WHERE id = ?", (dup["id"],))
+        self._exec("UPDATE groups SET fb_id = ? WHERE id = ?", (fb_id, group_id))
 
     def delete_group(self, group_id: int) -> None:
         self._exec("DELETE FROM groups WHERE id = ?", (group_id,))

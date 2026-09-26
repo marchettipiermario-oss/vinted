@@ -38,6 +38,12 @@ function fmtDate(iso) {
   return isNaN(d) ? iso : d.toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" });
 }
 
+function fmtTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleTimeString("it-IT");
+}
+
 function fmtPrice(p) {
   return p == null ? "" : p.toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 }
@@ -58,7 +64,8 @@ async function loadStatus() {
     ? '<span class="warn-text">browser non avviato</span>'
     : s.logged_in ? '<span class="ok-text">collegato</span>' : '<span class="err-text">non collegato</span>';
   $("#st-group").textContent = s.current_group || "—";
-  $("#st-next").textContent = s.paused ? "—" : fmtDate(s.next_cycle_at);
+  $("#st-next").textContent = s.paused ? "—" : fmtTime(s.next_cycle_at);
+  $("#st-notif").textContent = fmtTime(s.last_notif_at);
   $("#st-counts").textContent = `${s.groups} · ${s.rules}`;
   $("#st-posts").textContent = s.posts_seen;
   $("#st-channels").innerHTML = s.channels.length
@@ -291,14 +298,20 @@ async function loadSettings() {
 
 async function updateEstimate() {
   const f = $("#settings-form");
-  const n = groupsCache.length || (await api("/api/groups")).length;
+  const groups = groupsCache.length ? groupsCache : await api("/api/groups");
+  const n = groups.filter(g => g.enabled).length;
   const per = Math.max(1, Number(f.groups_per_cycle.value) || 1);
   const avgDelay = (Number(f.delay_between_groups_min.value) + Number(f.delay_between_groups_max.value)) / 2;
   const cycleMin = Number(f.interval_minutes.value) * 1.05 + (per * (avgDelay + 20)) / 60;
   const cycles = Math.ceil(n / per);
-  $("#cycle-estimate").textContent = n
-    ? `Con ${n} gruppi attivi, ogni gruppo viene ricontrollato circa ogni ${Math.round(cycles * cycleMin)} minuti.`
-    : "";
+  const parts = [];
+  if (f.notif_enabled.checked) {
+    parts.push(`Modalità veloce: un post nuovo viene segnalato tra circa 10 e ${Math.round(Number(f.notif_interval_seconds.value) * 1.25 + 15)} secondi dopo la notifica di Facebook.`);
+  }
+  if (f.rotation_enabled.checked && n) {
+    parts.push(`Scansione: con ${n} gruppi in rotazione, ognuno viene riletto circa ogni ${Math.max(1, Math.round(cycles * cycleMin))} minuti.`);
+  }
+  $("#cycle-estimate").textContent = parts.join(" ");
 }
 $("#settings-form").addEventListener("input", updateEstimate);
 

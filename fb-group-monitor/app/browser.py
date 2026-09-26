@@ -16,7 +16,8 @@ from typing import Optional
 
 from playwright.async_api import BrowserContext, Page, Playwright, async_playwright
 
-from .extractor import EXPAND_JS, EXTRACT_JS, SEE_MORE_LABELS, feed_url
+from .extractor import (EXPAND_JS, EXTRACT_JS, NOTIFICATIONS_JS, NOTIFICATIONS_URL, POST_JS,
+                        SEE_MORE_LABELS, feed_url)
 
 log = logging.getLogger(__name__)
 
@@ -113,14 +114,9 @@ class FacebookBrowser:
     async def scrape_group(self, group_url: str, scrolls: int = 3) -> ScrapeResult:
         async with self.lock:
             page = await self._page()
-            await page.goto(feed_url(group_url), wait_until="domcontentloaded", timeout=60_000)
-            await page.wait_for_timeout(random.randint(2500, 4500))
-
-            status = self._blocked_status(page.url)
+            status = await self._goto_checked(page, feed_url(group_url), (2000, 3500))
             if status:
                 return ScrapeResult(status, url=page.url)
-            if not await self.is_logged_in():
-                return ScrapeResult("logged_out", url=page.url)
 
             try:
                 await page.wait_for_selector('[role="feed"]', timeout=15_000)
@@ -135,6 +131,47 @@ class FacebookBrowser:
             await page.wait_for_timeout(random.randint(600, 1200))
             items = await page.evaluate(EXTRACT_JS)
             return ScrapeResult("ok", items=items, title=await page.title(), url=page.url)
+
+    async def _goto_checked(self, page: Page, url: str, wait_ms: tuple[int, int]) -> Optional[str]:
+        """Apre una pagina; restituisce 'checkpoint'/'logged_out' se Facebook blocca, altrimenti None."""
+        await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+        await page.wait_for_timeout(random.randint(*wait_ms))
+        status = self._blocked_status(page.url)
+        if status:
+            return status
+        if not await self.is_logged_in():
+            return "logged_out"
+        return None
+
+    async def read_notifications(self) -> ScrapeResult:
+        """Legge la pagina delle notifiche: una sola pagina per tutti i gruppi."""
+        async with self.lock:
+            page = await self._page()
+            status = await self._goto_checked(page, NOTIFICATIONS_URL, (1500, 2500))
+            if status:
+                return ScrapeResult(status, url=page.url)
+            try:
+                await page.wait_for_selector('[role="main"] a[href*="/groups/"]', timeout=8_000)
+            except Exception:
+                pass  # nessuna notifica di gruppi al momento
+            items = await page.evaluate(NOTIFICATIONS_JS)
+            return ScrapeResult("ok", items=items, url=page.url)
+
+    async def read_post(self, post_url: str) -> ScrapeResult:
+        """Apre un singolo post e ne legge testo, autore e testo completo."""
+        async with self.lock:
+            page = await self._page()
+            status = await self._goto_checked(page, post_url, (1800, 3000))
+            if status:
+                return ScrapeResult(status, url=page.url)
+            try:
+                await page.wait_for_selector('[role="article"], [data-ad-preview="message"]', timeout=10_000)
+            except Exception:
+                return ScrapeResult("no_feed", title=await page.title(), url=page.url)
+            await page.evaluate(EXPAND_JS, SEE_MORE_LABELS)
+            await page.wait_for_timeout(random.randint(400, 800))
+            item = await page.evaluate(POST_JS)
+            return ScrapeResult("ok", items=[item], title=await page.title(), url=page.url)
 
     @staticmethod
     def _blocked_status(url: str) -> Optional[str]:

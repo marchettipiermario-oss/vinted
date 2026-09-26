@@ -144,3 +144,102 @@ def build_posts(raw_items: list[dict], group_url: str) -> list[dict]:
             "price": price,
         }
     return list(posts.values())
+
+
+# ---------------------------------------------------------------------------
+# Modalità veloce: pagina delle notifiche e singolo post
+# ---------------------------------------------------------------------------
+
+NOTIFICATIONS_URL = "https://www.facebook.com/notifications"
+
+# Eseguito nella pagina delle notifiche: link verso gruppi con il testo della notifica.
+NOTIFICATIONS_JS = r"""
+() => {
+  const root = document.querySelector('[role="main"]') || document.body;
+  const out = [];
+  const seen = new Set();
+  root.querySelectorAll('a[href*="/groups/"]').forEach(a => {
+    const href = a.href;
+    if (seen.has(href)) return;
+    seen.add(href);
+    const box = a.closest('[role="row"], [role="listitem"], [role="gridcell"], [role="article"]') || a;
+    out.push({ href, text: (box.innerText || a.innerText || '').trim().slice(0, 1500) });
+  });
+  return out;
+}
+"""
+
+# Eseguito nella pagina di un singolo post: il primo articolo è il post, gli altri commenti.
+POST_JS = r"""
+() => {
+  const all = Array.from(document.querySelectorAll('[role="article"]'));
+  const top = all.filter(a => !a.parentElement || !a.parentElement.closest('[role="article"]'));
+  const msgSel = '[data-ad-preview="message"], [data-ad-comet-preview="message"]';
+  const art = top[0] || null;
+  const scope = art || document;
+  const msg = scope.querySelector(msgSel);
+  const authorEl = scope.querySelector('h2 a, h3 a, h4 a, strong a, h2 span, h3 span, h4 span');
+  let full = art ? art.innerText : '';
+  if (art) {
+    // Toglie dal testo completo i commenti annidati.
+    art.querySelectorAll('[role="article"]').forEach(c => { full = full.replace(c.innerText, ''); });
+  }
+  return {
+    text: msg ? msg.innerText.trim() : '',
+    full_text: (full || '').slice(0, 6000),
+    author: authorEl ? authorEl.innerText.trim() : '',
+  };
+}
+"""
+
+_GROUP_REF = re.compile(r"/groups/([^/?#]+)")
+_GROUP_NAME = re.compile(
+    r"(?:pubblicato|condiviso|scritto|posted|shared)\b.*?\bin\s+(.+?)\s*(?::|[.\n]|$)",
+    re.IGNORECASE,
+)
+_QUOTED = re.compile(r"[\"“«„](.+?)[\"”»“]", re.DOTALL)
+_NOT_GROUP_PAGES = {"feed", "discover", "joins", "search", "create", "notifications"}
+
+
+def group_ref_from_url(url: Optional[str]) -> Optional[str]:
+    """'https://www.facebook.com/groups/123/posts/9/' -> '123'"""
+    m = _GROUP_REF.search(url or "")
+    if not m or m.group(1) in _NOT_GROUP_PAGES:
+        return None
+    return m.group(1)
+
+
+def numeric_group_id(raw_items: list[dict]) -> Optional[str]:
+    """ID numerico del gruppo ricavato dai link dei post (anche se il link del gruppo usa un nome)."""
+    for item in raw_items:
+        ref = group_ref_from_url(item.get("permalink"))
+        if ref and ref.isdigit():
+            return ref
+    return None
+
+
+def parse_notifications(raw: list[dict]) -> list[dict]:
+    """Trasforma le notifiche grezze in eventi: nuovo post o attività in un gruppo."""
+    events: dict[str, dict] = {}
+    for item in raw:
+        href = item.get("href") or ""
+        ref = group_ref_from_url(href)
+        if not ref:
+            continue
+        text = (item.get("text") or "").strip()
+        pid = post_id_from_url(href)
+        name_match = _GROUP_NAME.search(text)
+        quoted = _QUOTED.search(text)
+        event = {
+            "kind": "post" if pid else "group",
+            "group_ref": ref,
+            "group_name": name_match.group(1).strip(' "“«') if name_match else "",
+            "post_id": pid,
+            "post_url": f"https://www.facebook.com/groups/{ref}/posts/{pid}/" if pid else None,
+            # Anteprima del post presente nella notifica (di solito troncata).
+            "snippet": quoted.group(1).strip() if quoted else text,
+            "text": text,
+        }
+        key = f"p:{pid}" if pid else f"g:{ref}:{hashlib.sha1(text.encode()).hexdigest()[:12]}"
+        events.setdefault(key, event)
+    return list(events.values())

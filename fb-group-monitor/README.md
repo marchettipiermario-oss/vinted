@@ -1,8 +1,23 @@
 # Monitor gruppi Facebook
 
-App web che gira sul tuo Mac, controlla a rotazione i gruppi Facebook di cui fai parte
-e ti avvisa su **Discord**, **Telegram** e **WhatsApp** quando compare un post che
-contiene le parole chiave che ti interessano, entro il prezzo che hai scelto.
+App web che gira sul tuo Mac, tiene d'occhio i gruppi Facebook di cui fai parte
+e ti avvisa su **Discord**, **Telegram** e **WhatsApp**, di solito **entro un minuto**,
+quando compare un post con le parole chiave che ti interessano, entro il prezzo che hai scelto.
+
+## Come fa a essere veloce
+
+Aprire 20+ gruppi uno per uno ogni minuto significherebbe migliaia di pagine al giorno:
+Facebook bloccherebbe l'account in fretta. L'app usa invece **le notifiche di Facebook**:
+
+1. Su ogni gruppo imposti le notifiche su **Tutti i post**.
+2. L'app ricarica **una sola pagina**, facebook.com/notifications, ogni ~40 secondi.
+3. Per ogni notifica di un post nuovo apre **solo quel post**, legge testo e prezzo,
+   applica le regole e ti manda il messaggio.
+4. Se Facebook raggruppa le notifiche («Luca e altre 5 persone hanno pubblicato in…»),
+   apre subito quel gruppo e legge i post più recenti.
+
+Una **scansione a rotazione** dei gruppi resta attiva come rete di sicurezza, per i post
+di cui Facebook non manda la notifica.
 
 Legge i gruppi con un browser Chrome automatizzato, usando il **tuo** account Facebook:
 il login lo fai tu a mano una volta, nella finestra che si apre.
@@ -11,9 +26,9 @@ il login lo fai tu a mano una volta, nella finestra che si apre.
 
 - Facebook vieta nelle sue condizioni la lettura automatica dei contenuti. Il rischio
   concreto è che l'account venga **limitato o sospeso**. Se puoi, usa un account secondario.
-- Le impostazioni predefinite sono prudenti: pochi gruppi per ciclo, pause casuali,
-  orari di attività, un tetto di pagine al giorno. Se Facebook chiede una verifica
-  di sicurezza, il monitor **si ferma da solo** e ti avvisa.
+- La modalità veloce carica poche pagine (le notifiche e i soli post nuovi), con pause
+  casuali e un tetto di pagine al giorno. Se Facebook chiede una verifica di sicurezza,
+  il monitor **si ferma da solo** e ti avvisa.
 - Deve girare sul tuo computer, non su un server: un login da un datacenter fa
   scattare subito i controlli di Facebook.
 
@@ -45,15 +60,18 @@ python3 -m venv .venv
 
 1. **Stato → «Apri Facebook per il login»**: si apre Chrome, accedi al tuo account.
    Il login resta salvato in `data/browser-profile`.
-2. **Gruppi**: incolla i link dei gruppi (`https://www.facebook.com/groups/...`).
-   Con «Aggiungi molti gruppi insieme» puoi incollarne uno per riga.
-3. **Regole**: per esempio *Parole chiave* `nike, air max`, *Da escludere* `cerco, bambino`,
+2. **Su Facebook**, per ogni gruppo: apri il gruppo → icona della campanella (o «…» →
+   Gestisci notifiche) → **Tutti i post**. È questo che rende l'app immediata.
+3. **Gruppi** (facoltativo): i gruppi da cui arrivano notifiche vengono aggiunti da soli.
+   Aggiungi a mano, e lascia con «Scansione» attiva, i gruppi che vuoi ricontrollare anche
+   a rotazione. Con «Aggiungi molti gruppi insieme» puoi incollarne uno per riga.
+4. **Regole**: per esempio *Parole chiave* `nike, air max`, *Da escludere* `cerco, bambino`,
    *Prezzo massimo* `50`. Una regola può valere per tutti i gruppi o solo per alcuni.
-4. **Impostazioni**: inserisci i canali di notifica e premi «Invia notifica di prova».
-5. **Stato → «Avvia monitor»**.
+5. **Impostazioni**: inserisci i canali di notifica e premi «Invia notifica di prova».
+6. **Stato → «Avvia monitor»**.
 
-La **prima lettura** di ogni gruppo salva i post già presenti senza notificarli:
-li trovi in «Post trovati» con la nota *prima lettura*. Da lì in poi ricevi solo i post nuovi.
+Al primo avvio le notifiche già presenti, e la prima lettura di ogni gruppo, vengono
+memorizzate senza notificarle. Da lì in poi ricevi solo i post nuovi.
 
 Lascia aperta la finestra del Terminale e quella di Chrome (puoi ridurla a icona).
 Se il Mac va in stop il monitor si ferma: `caffeinate -i ./avvia.command` lo tiene sveglio.
@@ -79,13 +97,23 @@ Se il Mac va in stop il monitor si ferma: `caffeinate -i ./avvia.command` lo tie
 Per WhatsApp verso più persone o con più volume serve un servizio a pagamento
 (Twilio o WhatsApp Business Cloud API): si può aggiungere in `app/notifiers.py`.
 
-## Ritmo dei controlli con molti gruppi
+## Velocità e rischio
 
-In «Impostazioni» vedi una stima di ogni quanto viene ricontrollato ciascun gruppo.
-Con 30 gruppi e i valori predefiniti (4 gruppi per ciclo, 10 minuti tra i cicli)
-ogni gruppo viene riletto circa ogni 2 ore. Si può accelerare aumentando i gruppi per
-ciclo o riducendo i minuti, ma cresce il rischio di blocco. Conviene disattivare i gruppi
-meno utili piuttosto che forzare il ritmo.
+| Impostazione | Predefinito | Effetto |
+|---|---|---|
+| Controlla le notifiche ogni | 40 s | Ritardo massimo tra la notifica di Facebook e il tuo avviso (più ~10 s per aprire il post). Minimo 15 s |
+| Apri il post | sì | Legge testo completo e prezzo. Se lo togli filtra solo sull'anteprima della notifica: qualche secondo più veloce, ma meno preciso |
+| Scansione a rotazione | 5 gruppi ogni 15 min | Rete di sicurezza. Puoi spingerla fino a pause di 3 s e giri ogni minuto, ma è il modo più rapido per farsi limitare l'account |
+| Limite pagine al giorno | 1500 | Gruppi e post aperti; la pagina notifiche non conta |
+
+In «Impostazioni» trovi una stima dei tempi con i valori scelti.
+
+Limiti da conoscere:
+- La velocità dipende da Facebook: di solito la notifica arriva in pochi secondi,
+  ma con gruppi molto attivi Facebook può raggrupparle o ritardarle. In quel caso interviene
+  la lettura del gruppo o la scansione a rotazione.
+- Facebook a volte riporta da solo le notifiche di un gruppo a «In evidenza». Se da un
+  gruppo smettono di arrivare avvisi, ricontrolla la campanella.
 
 ## Se qualcosa non va
 
@@ -103,15 +131,15 @@ meno utili piuttosto che forzare il ritmo.
 .venv/bin/python -m pytest
 ```
 
-I test non si collegano a Facebook: usano una pagina di prova (`tests/fixtures/group_feed.html`)
-che riproduce gli attributi usati dal feed dei gruppi.
+I test non si collegano a Facebook: usano pagine di prova (`tests/fixtures/`) che riproducono
+gli attributi usati da feed dei gruppi, pagina notifiche e singolo post.
 
 | File | Contenuto |
 |---|---|
 | `app/main.py` | API e server web |
-| `app/monitor.py` | ciclo di controllo, rotazione, limiti, blocco in caso di verifica |
+| `app/monitor.py` | scheduler: notifiche, rotazione, limiti, blocco in caso di verifica |
 | `app/browser.py` | Chrome automatizzato con profilo persistente |
-| `app/extractor.py` | lettura dei post dalla pagina del gruppo |
+| `app/extractor.py` | lettura di feed dei gruppi, pagina notifiche e singoli post |
 | `app/filters.py` | parole chiave, esclusioni, prezzo |
 | `app/notifiers.py` | Discord, Telegram, WhatsApp |
 | `app/db.py` | archivio SQLite in `data/monitor.db` |
