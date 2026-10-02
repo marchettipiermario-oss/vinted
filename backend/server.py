@@ -997,6 +997,8 @@ async def startup():
     except Exception:
         pass
     await db.vinted_configs.create_index("user_id", unique=True)
+    await db.listings.create_index([("user_id", 1), ("created_at", -1)])
+    await db.ebay_configs.create_index("user_id", unique=True)
     # seed admin
     email = os.environ.get("ADMIN_EMAIL", "admin@vintedbot.app")
     pw = os.environ.get("ADMIN_PASSWORD", "admin123")
@@ -1029,6 +1031,9 @@ async def shutdown():
     client.close()
 
 
+from crosslist import build_router as build_crosslist_router  # noqa: E402
+
+api.include_router(build_crosslist_router(db, get_current_user, get_vinted_client))
 app.include_router(api)
 
 app.add_middleware(

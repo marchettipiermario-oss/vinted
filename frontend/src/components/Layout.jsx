@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { LogOut, LayoutGrid, Settings as SettingsIcon, Activity } from "lucide-react";
+import { LogOut, LayoutGrid, Settings as SettingsIcon, Activity, Tag } from "lucide-react";
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -36,6 +36,7 @@ export default function Layout() {
           </Link>
           <nav className="flex gap-2 ml-auto flex-wrap">
             {navItem("/", "Dashboard", LayoutGrid)}
+            {navItem("/listings", "Crosslist", Tag)}
             {navItem("/earnings", "Earnings", Activity)}
             {navItem("/settings", "Settings", SettingsIcon)}
             <span className="font-mono text-xs uppercase tracking-widest px-3 py-2 bg-[#F9FAFB] brut-border" data-testid="user-email">

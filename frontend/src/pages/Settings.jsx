@@ -3,6 +3,102 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Check, AlertTriangle, Trash2, Plus, Zap } from "lucide-react";
 
+const EBAY_TEXT_FIELDS = [
+  ["client_id", "App ID (Client ID)"],
+  ["merchant_location_key", "Merchant location key"],
+  ["fulfillment_policy_id", "Fulfillment policy ID"],
+  ["payment_policy_id", "Payment policy ID"],
+  ["return_policy_id", "Return policy ID"],
+  ["default_category_id", "Categoria default (categoryId)"],
+];
+const EBAY_SECRET_FIELDS = [
+  ["client_secret", "Cert ID (Client Secret)"],
+  ["refresh_token", "User refresh token"],
+  ["access_token", "User access token (alternativa, scade in 2h)"],
+];
+
+function EbaySettings() {
+  const [cfg, setCfg] = useState(null);
+  const [policies, setPolicies] = useState(null);
+
+  const load = async () => {
+    try { const { data } = await api.get("/crosslist/ebay/config"); setCfg(data); } catch { /* ignore */ }
+  };
+  useEffect(() => { load(); }, []);
+
+  if (!cfg) return null;
+  const set = (k) => (e) => setCfg({ ...cfg, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+
+  const save = async () => {
+    try { await api.put("/crosslist/ebay/config", cfg); toast.success("eBay salvato"); load(); }
+    catch { toast.error("Salvataggio non riuscito"); }
+  };
+
+  const loadPolicies = async () => {
+    try { const { data } = await api.get("/crosslist/ebay/policies"); setPolicies(data); toast.success("Connessione eBay OK"); }
+    catch (e) { toast.error(e.response?.data?.detail || "Connessione eBay fallita"); }
+  };
+
+  const pick = (k, options, labelKey = "name", idKey = "id") => (
+    options?.length ? (
+      <select className="brut-input mt-1" value="" onChange={(e) => setCfg({ ...cfg, [k]: e.target.value })}>
+        <option value="">— scegli tra le tue policy —</option>
+        {options.map((o) => <option key={o[idKey]} value={o[idKey]}>{o[labelKey]} ({o[idKey]})</option>)}
+      </select>
+    ) : null
+  );
+
+  return (
+    <div className="brut-card p-6 space-y-4" data-testid="ebay-section">
+      <h2 className="font-head text-2xl font-black tracking-tighter">// eBay (Crosslist)</h2>
+      <div className="brut-border bg-blue-50 p-3 font-mono text-xs space-y-1">
+        <div>1) Crea un'app su <strong>developer.ebay.com</strong> → copia App ID e Cert ID.</div>
+        <div>2) Genera un <strong>User token</strong> (OAuth) con scope <code>sell.inventory</code> e <code>sell.account</code> → incolla il refresh token.</div>
+        <div>3) Nel tuo account venditore crea le business policy (spedizione, pagamento, reso) e una location → premi "Carica policy".</div>
+      </div>
+      {!cfg.public_base_url && (
+        <div className="brut-border bg-yellow-50 p-3 flex gap-2 font-mono text-xs">
+          <AlertTriangle size={16} className="shrink-0" />
+          <div><code>PUBLIC_BASE_URL</code> non è impostato nel backend: eBay deve poter scaricare le foto da un URL pubblico HTTPS.</div>
+        </div>
+      )}
+      <div className="flex gap-4 flex-wrap items-end">
+        <label className="flex items-center gap-2 font-mono text-xs uppercase">
+          <input type="checkbox" checked={cfg.sandbox} onChange={set("sandbox")} /> Sandbox
+        </label>
+        <div>
+          <label className="brut-label">Marketplace</label>
+          <select className="brut-input" value={cfg.marketplace_id} onChange={set("marketplace_id")}>
+            {["EBAY_IT", "EBAY_DE", "EBAY_FR", "EBAY_ES", "EBAY_GB", "EBAY_US"].map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {EBAY_SECRET_FIELDS.map(([k, label]) => (
+          <div key={k}>
+            <label className="brut-label">{label} {cfg[`has_${k}`] && <span className="text-[#00C853]">✓ salvato</span>}</label>
+            <input type="password" className="brut-input" value={cfg[k]} onChange={set(k)} placeholder={cfg[`has_${k}`] ? "lascia vuoto per non cambiarlo" : ""} />
+          </div>
+        ))}
+        {EBAY_TEXT_FIELDS.map(([k, label]) => (
+          <div key={k}>
+            <label className="brut-label">{label}</label>
+            <input className="brut-input" value={cfg[k] || ""} onChange={set(k)} />
+            {k === "fulfillment_policy_id" && pick(k, policies?.fulfillment_policy)}
+            {k === "payment_policy_id" && pick(k, policies?.payment_policy)}
+            {k === "return_policy_id" && pick(k, policies?.return_policy)}
+            {k === "merchant_location_key" && pick(k, policies?.locations, "name", "key")}
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-3">
+        <button onClick={save} className="brut-btn" data-testid="ebay-save-btn">Salva</button>
+        <button onClick={loadPolicies} className="brut-btn brut-btn-secondary" data-testid="ebay-policies-btn">Carica policy / test</button>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const [cfg, setCfg] = useState({ domain: "www.vinted.it", cookie: "", user_agent: "", configured: false });
   const [saving, setSaving] = useState(false);
@@ -199,6 +295,7 @@ export default function Settings() {
           {tg.configured && <span className="font-mono text-xs uppercase tracking-widest flex items-center gap-1 text-[#00C853]"><Check size={14} /> Telegram connected</span>}
         </div>
       </div>
+      <EbaySettings />
     </div>
   );
 }

@@ -37,3 +37,12 @@ A Vinted power-user/reseller who wants to monitor new listings matching saved cr
 - Statistics charts (Recharts)
 - Price-drop detection
 - Shareable search templates
+
+## Crosslist (v2 — 2026-10)
+Request: "puoi creare un software che pubblica su vinted, subito, marketplace e ebay?"
+- Page `/listings` (nav "Crosslist"): one listing (photos, title, price, brand, size, condition, per-platform price + categories) published to several platforms.
+- eBay: automatic via official Sell Inventory API (`inventory_item` → `offer` → `publish`, withdraw on sale). Config in Settings → eBay (App ID/Cert ID, refresh token, business policies, location). Requires `PUBLIC_BASE_URL` env so eBay can fetch photos from `/api/crosslist/photos/...`.
+- Vinted: automatic via unofficial web API (`/api/v2/photos`, `/api/v2/item_upload/items`) with the primary session cookie. Experimental; needs `vinted_catalog_id`.
+- Subito + Facebook Marketplace: no public API → assisted mode (platform-formatted copy, photo download, link to the post form, then "mark published").
+- "Venduto su…" marks sold and removes the listing elsewhere (eBay withdraw, Vinted delete; Subito/Marketplace flagged "RIMUOVI!").
+- Code: `backend/crosslist.py`, tests in `tests/test_crosslist.py`. Photos stored in `UPLOAD_DIR` (default `backend/uploads/`).
