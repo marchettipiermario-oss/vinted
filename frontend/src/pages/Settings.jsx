@@ -68,6 +68,17 @@ function AgentSettings() {
           </div>
         ))}
       </div>
+      <div className="brut-border bg-[#F9FAFB] p-3 font-mono text-xs space-y-1" data-testid="agent-claude-code">
+        <div><strong>Oppure fai fare tutto a Claude Code</strong>: dopo il <code>setup</code>, apri Claude Code nella cartella del progetto
+        con Chrome collegato (<code>claude --chrome</code> o l'app desktop con l'estensione Claude in Chrome) e scrivi:</div>
+        {["/pubblica-annunci", "/loop 15m /pubblica-annunci"].map((c) => (
+          <div key={c} className="flex items-center gap-2">
+            <code className="flex-1 brut-border bg-black text-white px-2 py-1">{c}</code>
+            <button className="brut-border bg-white px-2 py-1 text-[10px] uppercase" onClick={() => copy(c)}>copia</button>
+          </div>
+        ))}
+        <div>Claude legge le pagine di Subito e Facebook come faresti tu, quindi si adatta se cambiano i moduli.</div>
+      </div>
       {token && (
         <div className="brut-border bg-yellow-50 p-3 font-mono text-xs break-all" data-testid="agent-token">
           Token (mostrato una sola volta): <strong>{token}</strong>

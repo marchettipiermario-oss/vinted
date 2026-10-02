@@ -34,6 +34,22 @@ rimuovere (quando segni "Venduto su…"). Opzioni:
 - `--once` — esegue i lavori in coda ed esce (utile con un'operazione pianificata).
 - `--headless` — browser invisibile (sconsigliato: niente barra gialla e più captcha).
 
+## Oppure: fai fare tutto a Claude Code
+
+Invece di `run`, puoi far pubblicare gli annunci a Claude Code, che legge le pagine come
+una persona e si adatta quando Subito o Facebook cambiano i moduli.
+
+1. Fai `setup` come sopra (serve il token).
+2. Apri Claude Code nella cartella del progetto con il tuo Chrome collegato:
+   `claude --chrome` (estensione **Claude in Chrome** installata) oppure l'app desktop.
+3. Scrivi `/pubblica-annunci` → Claude prende ogni annuncio in coda
+   (`crosslist_agent.py claim`), lo pubblica nel tuo Chrome e comunica l'esito al bot
+   (`crosslist_agent.py report`).
+4. Per farlo in automatico: `/loop 15m /pubblica-annunci`.
+
+Le regole che Claude segue (mai pagare, opzioni gratuite, si ferma su captcha e login)
+sono in `.claude/skills/pubblica-annunci/SKILL.md`.
+
 ## Cosa fa e cosa non fa
 
 - Compila titolo, descrizione, prezzo, categoria, condizioni, comune e carica le foto.

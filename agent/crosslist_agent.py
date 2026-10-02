@@ -5,6 +5,10 @@ Usage:
   python crosslist_agent.py login          # log into Subito and Facebook once, in the agent's browser
   python crosslist_agent.py run            # wait for jobs and execute them
 
+Claude Code mode (the /pubblica-annunci skill drives the browser instead of `run`):
+  python crosslist_agent.py claim          # take the next job, download its photos, print JSON
+  python crosslist_agent.py report JOB_ID --ok --url URL | --error "reason"
+
 The agent asks the bot for jobs every few seconds, opens the listing form in its
 own Chrome profile (where you are logged in), fills it in and publishes. If a step
 cannot be done automatically it shows a yellow banner and waits for you.
@@ -136,6 +140,26 @@ async def login(args) -> None:
     print("Login salvati nel profilo dell'agente.")
 
 
+async def claim_cmd(args) -> None:
+    """Print the next job as JSON with photos downloaded locally (for Claude Code)."""
+    cfg = load_config()
+    api = Api(cfg["server"], cfg["token"])
+    job = await api.claim()
+    if job and job["action"] == "publish":
+        folder = HOME / "jobs" / job["id"]
+        folder.mkdir(parents=True, exist_ok=True)
+        job["listing"]["photo_files"] = await api.download(job["listing"]["photo_paths"], folder)
+    print(json.dumps({"job": job}, ensure_ascii=False, indent=2))
+
+
+async def report_cmd(args) -> None:
+    if args.ok == bool(args.error):
+        sys.exit("Usa --ok oppure --error \"motivo\"")
+    cfg = load_config()
+    await Api(cfg["server"], cfg["token"]).result(args.job_id, args.ok, url=args.url, error=args.error)
+    print("ok")
+
+
 def setup(args) -> None:
     HOME.mkdir(parents=True, exist_ok=True)
     CONFIG.write_text(json.dumps({"server": args.server.rstrip("/"), "token": args.token}))
@@ -157,11 +181,21 @@ def main() -> None:
                    help="secondi di attesa quando serve il tuo intervento (0 = non aspettare)")
     r.add_argument("--headless", action="store_true", help="browser invisibile (sconsigliato)")
     r.add_argument("--once", action="store_true", help="esegue i lavori in coda e termina")
+    sub.add_parser("claim", help="prende il prossimo lavoro (per Claude Code)")
+    rp = sub.add_parser("report", help="comunica l'esito di un lavoro (per Claude Code)")
+    rp.add_argument("job_id")
+    rp.add_argument("--ok", action="store_true")
+    rp.add_argument("--url", default="")
+    rp.add_argument("--error", default="")
     args = ap.parse_args()
     if args.cmd == "setup":
         setup(args)
     elif args.cmd == "login":
         asyncio.run(login(args))
+    elif args.cmd == "claim":
+        asyncio.run(claim_cmd(args))
+    elif args.cmd == "report":
+        asyncio.run(report_cmd(args))
     else:
         try:
             asyncio.run(run(args))

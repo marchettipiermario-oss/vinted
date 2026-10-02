@@ -53,3 +53,8 @@ Request: "trova il modo per non farlo assistito, tipo comandando tu il computer"
 - Backend queue: `POST /crosslist/agent/token` (hash stored), agent calls `POST /crosslist/agent/jobs/claim` and `/agent/jobs/{id}/result` with `X-Agent-Token`. Publishing Subito/Facebook queues a job when an agent token exists (else assisted mode); "Venduto su…" queues delete jobs. Stale running jobs are re-claimed after 15 min.
 - Flows locate fields by label/placeholder/accessible name (IT + EN), pick free options on upsell pages, stop on payment pages, and hand over to the user with a yellow banner when stuck (login, captcha, unknown field).
 - Tested against local stand-in pages (`tests/test_agent_sites.py`); not yet verified against the live Subito/Facebook forms.
+
+## Claude Code mode (v4 — 2026-10)
+Request: "fai fare tutto a claude code"
+- Skill `.claude/skills/pubblica-annunci/SKILL.md`: Claude Code on the user's PC (with Claude in Chrome or computer use) loops `agent/crosslist_agent.py claim` → publishes/removes in the user's Chrome → `report <id> --ok/--error`. Can be scheduled with `/loop 15m /pubblica-annunci`.
+- Same safety rules as the Playwright agent: never pay, free options only, stop on captcha/2FA/login.
