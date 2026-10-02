@@ -17,6 +17,69 @@ const EBAY_SECRET_FIELDS = [
   ["access_token", "User access token (alternativa, scade in 2h)"],
 ];
 
+function AgentSettings() {
+  const [st, setSt] = useState(null);
+  const [token, setToken] = useState("");
+  const server = window.location.origin;
+
+  const load = async () => {
+    try { const { data } = await api.get("/crosslist/agent/status"); setSt(data); } catch { /* ignore */ }
+  };
+  useEffect(() => { load(); }, []);
+
+  const generate = async () => {
+    if (st?.configured && !window.confirm("Generare un nuovo token? Quello vecchio smette di funzionare.")) return;
+    try { const { data } = await api.post("/crosslist/agent/token"); setToken(data.token); load(); }
+    catch { toast.error("Errore"); }
+  };
+
+  const copy = async (text) => {
+    try { await navigator.clipboard.writeText(text); toast.success("Copiato"); } catch { toast.error("Copia non riuscita"); }
+  };
+
+  const online = st?.last_seen && Date.now() - new Date(st.last_seen).getTime() < 60000;
+  const cmds = [
+    "pip install -r requirements.txt && playwright install chromium",
+    `python crosslist_agent.py setup --server ${server} --token ${token || "<TOKEN>"}`,
+    "python crosslist_agent.py login",
+    "python crosslist_agent.py run",
+  ];
+
+  return (
+    <div className="brut-card p-6 space-y-4" data-testid="agent-section">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="font-head text-2xl font-black tracking-tighter">// Agente PC · Subito + Marketplace</h2>
+        {st?.configured && (
+          <span className={`brut-border font-mono text-[10px] font-black uppercase px-2 py-1 ${online ? "bg-[#00C853]" : "bg-gray-200"}`} data-testid="agent-online">
+            {online ? "ONLINE" : "OFFLINE"} · {st.queued} in coda
+          </span>
+        )}
+      </div>
+      <div className="brut-border bg-blue-50 p-3 font-mono text-xs">
+        Subito e Facebook non hanno API pubbliche: l'agente gira sul <strong>tuo PC</strong>, apre il tuo browser dove sei già loggato,
+        compila il modulo e pubblica da solo. Se qualcosa cambia sul sito (captcha, nuovo campo) ti mostra una barra gialla e aspetta te.
+        Non clicca mai opzioni a pagamento. Scarica la cartella <code>agent/</code> del progetto ed esegui:
+      </div>
+      <div className="space-y-1">
+        {cmds.map((c) => (
+          <div key={c} className="flex items-center gap-2">
+            <code className="flex-1 brut-border bg-black text-white font-mono text-[11px] px-2 py-1 overflow-x-auto whitespace-nowrap">{c}</code>
+            <button className="brut-border bg-white px-2 py-1 font-mono text-[10px] uppercase" onClick={() => copy(c)}>copia</button>
+          </div>
+        ))}
+      </div>
+      {token && (
+        <div className="brut-border bg-yellow-50 p-3 font-mono text-xs break-all" data-testid="agent-token">
+          Token (mostrato una sola volta): <strong>{token}</strong>
+        </div>
+      )}
+      <button className="brut-btn" onClick={generate} data-testid="agent-token-btn">
+        {st?.configured ? "Rigenera token" : "Genera token agente"}
+      </button>
+    </div>
+  );
+}
+
 function EbaySettings() {
   const [cfg, setCfg] = useState(null);
   const [policies, setPolicies] = useState(null);
@@ -295,6 +358,7 @@ export default function Settings() {
           {tg.configured && <span className="font-mono text-xs uppercase tracking-widest flex items-center gap-1 text-[#00C853]"><Check size={14} /> Telegram connected</span>}
         </div>
       </div>
+      <AgentSettings />
       <EbaySettings />
     </div>
   );

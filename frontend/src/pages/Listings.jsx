@@ -25,6 +25,9 @@ const STATUS_STYLE = {
   ended: ["RIMOSSO", "bg-gray-300 text-black"],
   sold: ["VENDUTO", "bg-[#002FA7] text-white"],
   remove_manually: ["RIMUOVI!", "bg-orange-400 text-black"],
+  queued: ["IN CODA", "bg-blue-100 text-black"],
+  running: ["AGENTE…", "bg-[#002FA7] text-white animate-pulse"],
+  removing: ["RIMOZIONE…", "bg-blue-100 text-black animate-pulse"],
 };
 
 const EMPTY = {
@@ -365,6 +368,14 @@ export default function Listings() {
     catch { toast.error("Caricamento annunci non riuscito"); }
   };
   useEffect(() => { load(); }, []);
+
+  // While the PC agent has work in progress, refresh to show its results.
+  const pending = listings.some((l) => Object.values(l.platforms || {}).some((s) => ["queued", "running", "removing"].includes(s.status)));
+  useEffect(() => {
+    if (!pending) return undefined;
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [pending]);
 
   const live = listings.filter((l) => l.status !== "sold").length;
   const todo = listings.reduce((n, l) => n + Object.values(l.platforms || {}).filter((s) => ["manual_pending", "remove_manually"].includes(s.status)).length, 0);

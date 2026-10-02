@@ -999,6 +999,8 @@ async def startup():
     await db.vinted_configs.create_index("user_id", unique=True)
     await db.listings.create_index([("user_id", 1), ("created_at", -1)])
     await db.ebay_configs.create_index("user_id", unique=True)
+    await db.agent_tokens.create_index("token_hash")
+    await db.agent_jobs.create_index([("user_id", 1), ("status", 1), ("created_at", 1)])
     # seed admin
     email = os.environ.get("ADMIN_EMAIL", "admin@vintedbot.app")
     pw = os.environ.get("ADMIN_PASSWORD", "admin123")

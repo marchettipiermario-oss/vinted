@@ -220,3 +220,63 @@ def test_router_full_flow(tmp_path, monkeypatch):
     final = c.get(f"/crosslist/listings/{lid}").json()
     assert final["status"] == "sold" and final["platforms"]["subito"]["status"] == "sold"
     assert c.post(f"/crosslist/listings/{lid}/publish", json={"platforms": ["ebay"]}).status_code == 400
+
+
+def test_agent_job_queue(tmp_path, monkeypatch):
+    import pytest
+    mm = pytest.importorskip("mongomock_motor")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(crosslist, "UPLOAD_DIR", tmp_path)
+    user_id = "b" * 24
+
+    async def current_user():
+        return {"id": user_id}
+
+    async def vinted_client(_uid):
+        return object()
+
+    db = mm.AsyncMongoMockClient()["t"]
+    app = FastAPI()
+    app.include_router(crosslist.build_router(db, current_user, vinted_client))
+    c = TestClient(app)
+
+    photo = c.post("/crosslist/photos", files=[("files", ("a.jpg", b"jpg", "image/jpeg"))]).json()[0]["id"]
+    lid = c.post("/crosslist/listings", json={**LISTING, "photos": [photo], "subito_category": "Abbigliamento"}).json()["id"]
+
+    # without an agent, Subito/Facebook stay assisted
+    r = c.post(f"/crosslist/listings/{lid}/publish", json={"platforms": ["subito"]}).json()
+    assert r["results"]["subito"]["status"] == "manual_pending"
+
+    token = c.post("/crosslist/agent/token").json()["token"]
+    assert c.post("/crosslist/agent/jobs/claim", headers={"X-Agent-Token": "wrong"}).status_code == 401
+    h = {"X-Agent-Token": token}
+    assert c.post("/crosslist/agent/jobs/claim", headers=h).json() == {"job": None}
+
+    r = c.post(f"/crosslist/listings/{lid}/publish", json={"platforms": ["subito", "facebook"]}).json()
+    assert r["results"]["subito"]["status"] == "queued" and r["results"]["facebook"]["status"] == "queued"
+    # publishing again does not duplicate queued jobs
+    c.post(f"/crosslist/listings/{lid}/publish", json={"platforms": ["subito"]})
+    assert c.get("/crosslist/agent/status").json()["queued"] == 2
+
+    job = c.post("/crosslist/agent/jobs/claim", headers=h).json()["job"]
+    assert job["action"] == "publish"
+    assert job["listing"]["title"] and job["listing"]["photo_paths"] == [f"/api/crosslist/photos/{user_id}/{photo}"]
+    assert c.get(f"/crosslist/listings/{lid}").json()["platforms"][job["platform"]]["status"] == "running"
+    c.post(f"/crosslist/agent/jobs/{job['id']}/result", headers=h, json={"success": True, "url": "https://x/1"})
+
+    job2 = c.post("/crosslist/agent/jobs/claim", headers=h).json()["job"]
+    c.post(f"/crosslist/agent/jobs/{job2['id']}/result", headers=h, json={"success": False, "error": "captcha"})
+    plats = c.get(f"/crosslist/listings/{lid}").json()["platforms"]
+    assert plats[job["platform"]] ["status"] == "published" and plats[job["platform"]]["url"] == "https://x/1"
+    assert plats[job2["platform"]]["status"] == "manual_pending" and "captcha" in plats[job2["platform"]]["error"]
+    assert c.get("/crosslist/agent/status").json()["last_seen"]
+
+    # sold elsewhere → the agent gets a delete job for the published platform
+    s = c.post(f"/crosslist/listings/{lid}/sold", json={"sold_on": "other"}).json()
+    assert s["ended"][job["platform"]]["status"] == "removing"
+    d = c.post("/crosslist/agent/jobs/claim", headers=h).json()["job"]
+    assert d["action"] == "delete" and d["url"] == "https://x/1"
+    c.post(f"/crosslist/agent/jobs/{d['id']}/result", headers=h, json={"success": True})
+    assert c.get(f"/crosslist/listings/{lid}").json()["platforms"][job["platform"]]["status"] == "ended"

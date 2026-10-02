@@ -46,3 +46,10 @@ Request: "puoi creare un software che pubblica su vinted, subito, marketplace e 
 - Subito + Facebook Marketplace: no public API → assisted mode (platform-formatted copy, photo download, link to the post form, then "mark published").
 - "Venduto su…" marks sold and removes the listing elsewhere (eBay withdraw, Vinted delete; Subito/Marketplace flagged "RIMUOVI!").
 - Code: `backend/crosslist.py`, tests in `tests/test_crosslist.py`. Photos stored in `UPLOAD_DIR` (default `backend/uploads/`).
+
+## PC agent for Subito + Marketplace (v3 — 2026-10)
+Request: "trova il modo per non farlo assistito, tipo comandando tu il computer"
+- `agent/` is a local Playwright agent the user runs on their own PC with a dedicated, logged-in Chrome profile.
+- Backend queue: `POST /crosslist/agent/token` (hash stored), agent calls `POST /crosslist/agent/jobs/claim` and `/agent/jobs/{id}/result` with `X-Agent-Token`. Publishing Subito/Facebook queues a job when an agent token exists (else assisted mode); "Venduto su…" queues delete jobs. Stale running jobs are re-claimed after 15 min.
+- Flows locate fields by label/placeholder/accessible name (IT + EN), pick free options on upsell pages, stop on payment pages, and hand over to the user with a yellow banner when stuck (login, captcha, unknown field).
+- Tested against local stand-in pages (`tests/test_agent_sites.py`); not yet verified against the live Subito/Facebook forms.

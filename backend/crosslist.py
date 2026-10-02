@@ -5,16 +5,20 @@ Channel support differs because the platforms differ:
 - Vinted     → automatic, via the same unofficial web API the autobuy feature uses
                (session cookie from Settings). Experimental: it can break whenever
                Vinted changes its private endpoints.
-- Subito     → assisted: no public API exists, so we generate ready-to-paste text
-- Facebook     and open the platform's "new listing" page; the user marks it published.
+- Subito     → no public API exists. If the user runs the local agent (agent/), publishing
+- Facebook     is queued as a job that the agent performs in the user's own logged-in
+               browser. Without an agent we fall back to assisted mode: ready-to-paste
+               text plus a link to the platform's "new listing" page.
 
 The router is built by `build_router(...)` so this module does not import server.py.
 """
 import asyncio
+import hashlib
 import html
 import logging
 import os
 import re
+import secrets
 import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -22,7 +26,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional
 
 import httpx
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -111,6 +115,12 @@ class MarkIn(BaseModel):
 
 class SoldIn(BaseModel):
     sold_on: Literal["vinted", "ebay", "subito", "facebook", "other"]
+
+
+class AgentResultIn(BaseModel):
+    success: bool
+    url: str = ""
+    error: str = ""
 
 
 class EbayConfigIn(BaseModel):
@@ -249,6 +259,13 @@ def build_vinted_item(listing: dict, photo_ids: List[int], temp_uuid: str) -> di
         "parcel": None,
         "upload_session_id": temp_uuid,
     }
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+AGENT_JOB_TIMEOUT = timedelta(minutes=15)
 
 
 def ebay_missing_config(cfg: dict, listing: dict) -> List[str]:
@@ -588,6 +605,17 @@ def build_router(db, get_current_user: Callable, get_vinted_client: Callable,
     def assisted_state(platform: str) -> dict:
         return {"status": "manual_pending", "error": "", "post_url": POST_URLS[platform]}
 
+    async def has_agent(user_id: str) -> bool:
+        return bool(await db.agent_tokens.find_one({"user_id": user_id}))
+
+    async def enqueue(d: dict, platform: str, action: str) -> None:
+        # Drop jobs for this listing/platform that the agent has not picked up yet.
+        await db.agent_jobs.delete_many({"listing_id": str(d["_id"]), "platform": platform, "status": "queued"})
+        await db.agent_jobs.insert_one({
+            "user_id": d["user_id"], "listing_id": str(d["_id"]), "platform": platform,
+            "action": action, "status": "queued", "created_at": now_iso(),
+        })
+
     @router.post("/listings/{listing_id}/publish")
     async def publish(listing_id: str, payload: PublishIn, user: dict = Depends(get_current_user)):
         d = await load(listing_id, user)
@@ -603,8 +631,17 @@ def build_router(db, get_current_user: Callable, get_vinted_client: Callable,
             elif p == "vinted":
                 jobs[p] = publish_vinted(d, user["id"])
         results = dict(zip(jobs.keys(), await asyncio.gather(*jobs.values())))
-        for p in payload.platforms:
-            if p in ASSISTED_PLATFORMS and ((d.get("platforms") or {}).get(p) or {}).get("status") != "published":
+        agent = await has_agent(user["id"])
+        for p in dict.fromkeys(payload.platforms):
+            if p not in ASSISTED_PLATFORMS:
+                continue
+            status = ((d.get("platforms") or {}).get(p) or {}).get("status")
+            if status in ("published", "running"):
+                continue
+            if agent:
+                await enqueue(d, p, "publish")
+                results[p] = {"status": "queued", "error": ""}
+            else:
                 results[p] = assisted_state(p)
         for p, state in results.items():
             await set_platform(d, p, state)
@@ -641,7 +678,12 @@ def build_router(db, get_current_user: Callable, get_vinted_client: Callable,
             if p == payload.sold_on:
                 await set_platform(d, p, {"status": "sold"})
                 continue
-            if state.get("status") not in ("published", "manual_pending"):
+            if state.get("status") not in ("published", "manual_pending", "queued", "running"):
+                continue
+            if p in ASSISTED_PLATFORMS and state.get("status") == "queued":
+                await db.agent_jobs.delete_many({"listing_id": str(d["_id"]), "platform": p, "status": "queued"})
+                ended[p] = {"status": "ended", "error": ""}
+                await set_platform(d, p, ended[p])
                 continue
             try:
                 if p == "ebay" and state.get("offer_id"):
@@ -655,6 +697,10 @@ def build_router(db, get_current_user: Callable, get_vinted_client: Callable,
                     client = await get_vinted_client(user["id"])
                     await asyncio.to_thread(vinted_delete_sync, client, state["external_id"])
                     ended[p] = {"status": "ended", "error": ""}
+                elif (p in ASSISTED_PLATFORMS and state.get("status") == "published"
+                      and state.get("url") and await has_agent(user["id"])):
+                    await enqueue(d, p, "delete")
+                    ended[p] = {"status": "removing", "error": ""}
                 else:
                     ended[p] = {"status": "remove_manually", "error": "Rimuovi l'annuncio a mano"}
             except Exception as e:
@@ -664,6 +710,103 @@ def build_router(db, get_current_user: Callable, get_vinted_client: Callable,
                                      {"$set": {"status": "sold", "sold_on": payload.sold_on, "sold_at": now_iso()}})
         d.update({"status": "sold", "sold_on": payload.sold_on})
         return {"ended": ended, "listing": to_out(d)}
+
+    # ---- local agent (Subito / Facebook via the user's own browser) ---------
+    async def current_agent(x_agent_token: str = Header(default="")) -> dict:
+        doc = await db.agent_tokens.find_one({"token_hash": hash_token(x_agent_token)}) if x_agent_token else None
+        if not doc:
+            raise HTTPException(status_code=401, detail="Invalid agent token")
+        await db.agent_tokens.update_one({"_id": doc["_id"]}, {"$set": {"last_seen": now_iso()}})
+        return {"id": doc["user_id"]}
+
+    @router.post("/agent/token")
+    async def new_agent_token(user: dict = Depends(get_current_user)):
+        """Create (or rotate) the user's agent token. Shown once; only its hash is stored."""
+        token = secrets.token_urlsafe(32)
+        await db.agent_tokens.update_one(
+            {"user_id": user["id"]},
+            {"$set": {"user_id": user["id"], "token_hash": hash_token(token), "created_at": now_iso(), "last_seen": None}},
+            upsert=True,
+        )
+        return {"token": token}
+
+    @router.get("/agent/status")
+    async def agent_status(user: dict = Depends(get_current_user)):
+        doc = await db.agent_tokens.find_one({"user_id": user["id"]})
+        return {
+            "configured": bool(doc),
+            "last_seen": (doc or {}).get("last_seen"),
+            "queued": await db.agent_jobs.count_documents({"user_id": user["id"], "status": "queued"}),
+            "running": await db.agent_jobs.count_documents({"user_id": user["id"], "status": "running"}),
+        }
+
+    @router.delete("/agent/token")
+    async def delete_agent_token(user: dict = Depends(get_current_user)):
+        await db.agent_tokens.delete_many({"user_id": user["id"]})
+        return {"ok": True}
+
+    @router.post("/agent/jobs/claim")
+    async def claim_job(agent: dict = Depends(current_agent)):
+        """Hand the next job to the agent. Jobs stuck in 'running' (agent crashed) are retried."""
+        stale = (datetime.now(timezone.utc) - AGENT_JOB_TIMEOUT).isoformat()
+        job = None
+        for query in ({"user_id": agent["id"], "status": "queued"},
+                      {"user_id": agent["id"], "status": "running", "claimed_at": {"$lt": stale}}):
+            job = await db.agent_jobs.find_one_and_update(
+                query, {"$set": {"status": "running", "claimed_at": now_iso()}}, sort=[("created_at", 1)])
+            if job:
+                break
+        if not job:
+            return {"job": None}
+        try:
+            d = await db.listings.find_one({"_id": ObjectId(job["listing_id"]), "user_id": agent["id"]})
+        except Exception:
+            d = None
+        if not d:
+            await db.agent_jobs.update_one({"_id": job["_id"]}, {"$set": {"status": "failed", "error": "listing deleted"}})
+            return {"job": None}
+        platform = job["platform"]
+        if job["action"] == "publish":
+            await set_platform(d, platform, {"status": "running", "error": ""})
+        state = (d.get("platforms") or {}).get(platform) or {}
+        return {"job": {
+            "id": str(job["_id"]),
+            "platform": platform,
+            "action": job["action"],
+            "listing_id": job["listing_id"],
+            "url": state.get("url", ""),
+            "listing": {
+                **format_for(d, platform),
+                "category": d.get(f"{platform}_category") or "",
+                "location": d.get("location", ""),
+                "brand": d.get("brand", ""),
+                "size": d.get("size", ""),
+                "condition_key": d.get("condition"),
+                "photo_paths": [f"/api/crosslist/photos/{agent['id']}/{p}" for p in d.get("photos", [])],
+            },
+        }}
+
+    @router.post("/agent/jobs/{job_id}/result")
+    async def job_result(job_id: str, payload: AgentResultIn, agent: dict = Depends(current_agent)):
+        try:
+            job = await db.agent_jobs.find_one({"_id": ObjectId(job_id), "user_id": agent["id"]})
+        except Exception:
+            job = None
+        if not job:
+            raise HTTPException(status_code=404, detail="Not found")
+        await db.agent_jobs.update_one({"_id": job["_id"]}, {"$set": {
+            "status": "done" if payload.success else "failed",
+            "error": payload.error, "finished_at": now_iso()}})
+        d = await db.listings.find_one({"_id": ObjectId(job["listing_id"])})
+        if d:
+            if job["action"] == "publish":
+                state = ({"status": "published", "error": "", "url": payload.url} if payload.success else
+                         {**assisted_state(job["platform"]), "error": f"Agente: {payload.error}"})
+            else:
+                state = ({"status": "ended", "error": ""} if payload.success else
+                         {"status": "remove_manually", "error": f"Agente: {payload.error}"})
+            await set_platform(d, job["platform"], state)
+        return {"ok": True}
 
     # ---- eBay config --------------------------------------------------------
     SECRET_FIELDS = ("client_secret", "refresh_token", "access_token")
